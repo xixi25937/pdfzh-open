@@ -1,0 +1,5 @@
+BabelDOC==0.6.4
+PyMuPDF==1.28.2
+pypdf==6.19.0
+pylatexenc==2.11
+rapidocr-onnxruntime==1.4.4

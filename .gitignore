@@ -1,0 +1,42 @@
+# ---- 敏感信息 ----
+config.json
+.env
+.env.*
+settings.json
+*.key
+*.pem
+
+# ---- 运行环境（体积很大，不入库）----
+.venv/
+.venv-next/
+.home-next/
+dist/
+reference/
+pylibs/
+.home/
+.tmp/
+.test/
+
+# ---- 运行产物 ----
+output/
+翻译结果/
+*.pdf
+*.png
+*.zip
+text-cache.json
+reflow-text-cache.json
+reflow-qa.json
+document.json
+pending-translations.json
+reflow-layout.json
+reflow-assets-*/
+ocr-cache/
+质量报告.html
+*tracking*.json
+qa.json
+structure.json
+layout.json
+.pytest_cache/
+*_preview/
+*.pyc
+__pycache__/

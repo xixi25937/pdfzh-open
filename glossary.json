@@ -1,0 +1,71 @@
+{
+  "_说明": [
+    "术语表：强制统一全文术语译法，尤其适合长文档与多页论文。",
+    "两种写法都支持：",
+    "  简单版   \"term\": \"译法\"",
+    "  进阶版   \"term\": {\"preferred\": \"译法\", \"forbidden\": [\"错误译法\"], \"context\": \"适用范围\"}",
+    "以 _ 开头的键视为注释，不会被注入提示词。",
+    "收录原则：只放「全文出现 3 次以上、且容易译得不一致」的词，不要塞常用词。"
+  ],
+
+  "vision-language-action model": "视觉-语言-动作模型",
+  "vision-language-action": "视觉-语言-动作",
+  "vision-language model": "视觉-语言模型",
+  "flow matching": "流匹配",
+  "action expert": "动作专家",
+  "action chunk": "动作块",
+  "policy": "策略",
+  "robot configuration": "机器人构型",
+  "manipulator": "机械臂",
+  "mobile manipulator": "移动操作机器人",
+  "dexterous manipulation": "灵巧操作",
+  "embodied intelligence": "具身智能",
+  "embodied agent": "具身智能体",
+  "cross-embodiment": {
+    "preferred": "跨具身",
+    "forbidden": ["跨实体", "跨体现"],
+    "context": "指跨不同机器人本体的泛化能力"
+  },
+  "proprioceptive state": "本体感知状态",
+  "robot foundation model": "机器人基础模型",
+  "foundation model": "基础模型",
+  "training recipe": "训练方案",
+  "data mixture": "数据混合物",
+  "post-training": "后训练",
+  "pre-training": "预训练",
+  "fine-tuning": "微调",
+  "inference": {
+    "preferred": "推理",
+    "forbidden": ["推断", "推论"],
+    "context": "模型执行阶段；统计语境下才是「推断」"
+  },
+  "rollout": {
+    "preferred": "轨迹采样",
+    "forbidden": ["滚动", "推出"],
+    "context": "强化学习/机器人中指执行策略收集轨迹"
+  },
+  "backbone": {
+    "preferred": "主干网络",
+    "forbidden": ["骨干", "骨架"],
+    "context": "神经网络主体结构"
+  },
+  "zero-shot": "零样本",
+  "in-context learning": "上下文学习",
+  "generalization": "泛化能力",
+  "robustness": "鲁棒性",
+  "downstream task": "下游任务",
+  "benchmark": "基准测试",
+  "ablation study": "消融实验",
+  "imitation learning": "模仿学习",
+  "reinforcement learning": "强化学习",
+
+  "_质检发现补充": "以下术语由 verify_output.py 的英文残留扫描实测发现未被翻译，补入以避免复发",
+  "action token": "动作标记",
+  "task names": "任务名称",
+  "segment annotations": "片段标注",
+  "base model": "基础模型",
+  "cross-embodiment training": "跨具身训练",
+  "language labels": "语言标签",
+  "sub-trajectory": "子轨迹",
+  "fine-grained": "细粒度"
+}

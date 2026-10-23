@@ -1,0 +1,43 @@
+source,target,tgt_lng
+vision-language-action model,视觉-语言-动作模型,zh
+vision-language-action,视觉-语言-动作,zh
+vision-language model,视觉-语言模型,zh
+flow matching,流匹配,zh
+action expert,动作专家,zh
+action chunk,动作块,zh
+policy,策略,zh
+robot configuration,机器人构型,zh
+manipulator,机械臂,zh
+mobile manipulator,移动操作机器人,zh
+dexterous manipulation,灵巧操作,zh
+embodied intelligence,具身智能,zh
+embodied agent,具身智能体,zh
+cross-embodiment,跨具身,zh
+proprioceptive state,本体感知状态,zh
+robot foundation model,机器人基础模型,zh
+foundation model,基础模型,zh
+training recipe,训练方案,zh
+data mixture,数据混合物,zh
+post-training,后训练,zh
+pre-training,预训练,zh
+fine-tuning,微调,zh
+inference,推理,zh
+rollout,轨迹采样,zh
+backbone,主干网络,zh
+zero-shot,零样本,zh
+in-context learning,上下文学习,zh
+generalization,泛化能力,zh
+robustness,鲁棒性,zh
+downstream task,下游任务,zh
+benchmark,基准测试,zh
+ablation study,消融实验,zh
+imitation learning,模仿学习,zh
+reinforcement learning,强化学习,zh
+action token,动作标记,zh
+task names,任务名称,zh
+segment annotations,片段标注,zh
+base model,基础模型,zh
+cross-embodiment training,跨具身训练,zh
+language labels,语言标签,zh
+sub-trajectory,子轨迹,zh
+fine-grained,细粒度,zh
