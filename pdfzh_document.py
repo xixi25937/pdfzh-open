@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import concurrent.futures
 import json
+import os
 from pathlib import Path
 import re
 import unicodedata
@@ -67,7 +68,10 @@ class LocalOCR:
         if self.engine is None:
             from rapidocr_onnxruntime import RapidOCR
             print('[OCR] 加载本地识别模型（CPU；不调用付费接口）…', flush=True)
-            self.engine = RapidOCR(intra_op_num_threads=2, inter_op_num_threads=1,
+            # More threads do not change recognition results; 8 is a
+            # measured sweet spot on desktop CPUs (16 is slower again).
+            threads = min(8, os.cpu_count() or 2)
+            self.engine = RapidOCR(intra_op_num_threads=threads, inter_op_num_threads=1,
                                   det_limit_side_len=1600, det_limit_type='max',
                                   text_score=0.3)
         scale = min(3, 2400 / max(page.rect.width, page.rect.height))
