@@ -292,7 +292,17 @@ def main(argv=None):
     args = parser.parse_args(argv)
     pdf, out = args.pdf.resolve(), args.outdir.resolve()
     print('[启动] 完整文字重排模式；公式和图形本地保护，中文可续页。', flush=True)
-    plan = document.prepare(pdf, out)
+    try:
+        plan = document.prepare(pdf, out)
+    except (translation.SourceValidationError, KeyboardInterrupt):
+        raise
+    except Exception as exc:
+        out.mkdir(parents=True, exist_ok=True)
+        copy = native.publish_copy(pdf, out/(pdf.stem+'-提取失败-原文.pdf'))
+        translation.write_json(out/'reflow-qa.json', {'status': 'prepare_failed', 'automated_checks_passed': False,
+            'error': str(exc)[:500], 'output_files': {'bilingual': str(copy)}})
+        print(f'[错误] 结构提取失败（{str(exc)[:120]}）；已输出原文副本 {copy}', flush=True)
+        return 5
     cache, pending = load_cache(out, plan)
     print(f'[缓存] {sum(1 for _ in text_items(plan))} 段文字，缺缓存 {len(pending)} 段（清单已保存）。', flush=True)
     if args.analyze_only:

@@ -91,7 +91,9 @@ class LocalOCR:
 
 
 def crop_asset(page, rect, directory):
-    rect = (fitz.Rect(rect) + (-1.5, -1.5, 1.5, 1.5)) & page.rect
+    rect = fitz.Rect(rect)
+    rect.normalize()
+    rect = (rect + (-1.5, -1.5, 1.5, 1.5)) & page.rect
     if rect.is_empty:
         raise ValueError('原文区域坐标为空')
     identity = f'{page.number}:{tuple(round(v, 3) for v in rect)}'
@@ -232,9 +234,15 @@ def extract_page(page, regions, directory, ocr, ocr_cache, source_sha):
     # Raster images can be missed by the layout model. A full-page scan is not
     # itself a figure: its original already appears on the left.
     for block in blocks:
-        if block['type'] == 1 and fitz.Rect(block['bbox']).get_area() < page.rect.get_area() * .8:
-            if not any(area_overlap(block['bbox'], x['bbox']) > .5 for x in visual_regions):
-                visual_regions.append({'kind': 'figure', 'bbox': block['bbox']})
+        if block['type'] == 1:
+            # Flipped bitmaps report an inverted bbox; normalize before any
+            # area/overlap math, which treats empty rectangles as zero.
+            box = fitz.Rect(block['bbox'])
+            box.normalize()
+            if box.get_area() >= page.rect.get_area() * .8:
+                continue
+            if not any(area_overlap(box, x['bbox']) > .5 for x in visual_regions):
+                visual_regions.append({'kind': 'figure', 'bbox': list(box)})
     for region in visual_regions:
         items.append({**region, 'asset': crop_asset(page, region['bbox'], directory), 'origin': 'visual'})
     formula_boxes = [fitz.Rect(v['bbox']) for v in visual_regions if v['kind'] == 'isolate_formula']

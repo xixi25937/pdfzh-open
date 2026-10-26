@@ -220,6 +220,33 @@ class ReflowTests(unittest.TestCase):
             self.assertEqual(report['status'], 'needs_review')
             self.assertFalse(report['translation_complete'])
 
+    def test_flipped_bitmap_bbox_is_normalized(self):
+        with tempfile.TemporaryDirectory() as folder, fitz.open() as doc:
+            root = Path(folder); page = doc.new_page()
+            page.insert_text((20, 40), 'Safety')
+            asset = document.crop_asset(page, [309.0, 329.5, 357.1, 307.2], root)
+            self.assertGreater(asset['width'], 0)
+            self.assertGreater(asset['height'], 0)
+            self.assertTrue((root/asset['file']).exists())
+            raw = {'blocks': [{'type': 1, 'bbox': [309.0, 329.5, 357.1, 307.2]}]}
+            with patch.object(fitz.Page, 'get_text', return_value=raw):
+                info = document.extract_page(page, [], root, NoOCR(), root/'ocr.json', 'source')
+            figures = [x for x in info['items'] if x.get('origin') == 'visual']
+            self.assertEqual(len(figures), 1)
+            self.assertLess(figures[0]['bbox'][1], figures[0]['bbox'][3])
+
+    def test_prepare_failure_publishes_original_copy(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); source = root/'broken.pdf'; out = root/'job'
+            doc = fitz.open(); doc.new_page(); doc.save(source); doc.close()
+            with patch.object(document, 'prepare', side_effect=ValueError('原文区域坐标为空')):
+                self.assertEqual(reflow.main([str(source), '--outdir', str(out), '--offline']), 5)
+            report = json.loads((out/'reflow-qa.json').read_text(encoding='utf8'))
+            self.assertEqual(report['status'], 'prepare_failed')
+            self.assertFalse(report['automated_checks_passed'])
+            with fitz.open(report['output_files']['bilingual']) as result:
+                self.assertEqual(len(result), 1)
+
     def test_whitespace_control_glyph_is_not_silently_dropped(self):
         with tempfile.TemporaryDirectory() as folder,fitz.open() as doc:
             root=Path(folder); page=doc.new_page()
