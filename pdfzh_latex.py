@@ -458,7 +458,14 @@ def build_translation(files, cache_path, tracking, config, offline):
                 if not batch: break
                 if attempt<2:print(f'[翻译] {len(batch)} 个片段需重试：'+errors[0]['reason'][:200],flush=True)
             except Exception as e:
-                errors=[{'id':k,'reason':type(e).__name__} for k,s in batch]
+                reason=str(e)[:200]
+                if isinstance(e,urllib.error.HTTPError):
+                    if e.code in (401,403):
+                        return accepted,dict(total),[{'id':k,'reason':f'密钥无效或无权限（HTTP {e.code}）'} for k,s in batch]
+                    reason=f'翻译服务返回 HTTP {e.code}'
+                elif isinstance(e,(urllib.error.URLError,TimeoutError)):
+                    reason=f'无法连接翻译服务（{getattr(e,"reason",e)}）'[:200]
+                errors=[{'id':k,'reason':reason} for k,s in batch]
                 time.sleep(1+attempt)
         return accepted,dict(total),errors
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
@@ -487,6 +494,11 @@ def build_translation(files, cache_path, tracking, config, offline):
         write_json(history_path,history)
     if failed:
         (cache_path.parent/'translation-errors.json').write_text(json.dumps(failed,ensure_ascii=False,indent=2),encoding='utf-8')
+        reasons={x.get('reason','') for x in failed}
+        if all('密钥无效' in r for r in reasons):
+            raise TranslationIncompleteError('密钥无效或无权限；请运行 pdfzh.cmd configure 更换密钥后重试，已有译文不重译。')
+        if all('无法连接翻译服务' in r for r in reasons):
+            raise TranslationIncompleteError('无法连接翻译服务；请检查网络或代理后重试，已有译文不重译。')
         raise TranslationIncompleteError(f'{len(failed)} 个片段未通过保护检查；其余译文已缓存，详情见 translation-errors.json')
     if errors_path.exists():write_json(errors_path,[])
     return cache,dict(usage)

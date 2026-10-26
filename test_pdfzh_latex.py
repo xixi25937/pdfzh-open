@@ -171,10 +171,32 @@ class LatexTests(unittest.TestCase):
         segments=app.extract_segments('First paragraph.\n\nSecond paragraph.')
         with tempfile.TemporaryDirectory() as directory,patch.object(app,'api_batch',side_effect=TimeoutError),patch.object(app.time,'sleep'):
             root=Path(directory)
-            with self.assertRaisesRegex(RuntimeError,'2 个片段'):
+            with self.assertRaisesRegex(RuntimeError,'无法连接翻译服务'):
                 app.build_translation([(Path('x'),'',segments)],root/'cache.json',None,{'key':'fake','model':'test'},False)
             errors=json.loads((root/'translation-errors.json').read_text(encoding='utf8'))
             self.assertEqual({e['id'] for e in errors},{app.digest(s['text']) for s in segments})
+
+    def test_http_401_fails_fast_with_actionable_message(self):
+        import urllib.error
+        segments=app.extract_segments('First paragraph.\n\nSecond paragraph.')
+        err=urllib.error.HTTPError('https://example.invalid',401,'Unauthorized',{},None)
+        with tempfile.TemporaryDirectory() as directory,patch.object(app,'api_batch',side_effect=err) as api,patch.object(app.time,'sleep'):
+            root=Path(directory)
+            with self.assertRaisesRegex(app.TranslationIncompleteError,'密钥无效.*configure'):
+                app.build_translation([(Path('x'),'',segments)],root/'cache.json',None,{'key':'fake','model':'test'},False)
+            self.assertEqual(api.call_count,1)
+            errors=json.loads((root/'translation-errors.json').read_text(encoding='utf8'))
+            self.assertTrue(all('401' in e['reason'] for e in errors))
+
+    def test_connection_failure_message_mentions_network(self):
+        import urllib.error
+        segments=app.extract_segments('First paragraph.\n\nSecond paragraph.')
+        err=urllib.error.URLError('connection refused')
+        with tempfile.TemporaryDirectory() as directory,patch.object(app,'api_batch',side_effect=err) as api,patch.object(app.time,'sleep'):
+            root=Path(directory)
+            with self.assertRaisesRegex(app.TranslationIncompleteError,'无法连接翻译服务'):
+                app.build_translation([(Path('x'),'',segments)],root/'cache.json',None,{'key':'fake','model':'test'},False)
+            self.assertEqual(api.call_count,3)
 
     def test_formula_citation_and_styles_roundtrip(self):
         text = r'''\documentclass{article}
