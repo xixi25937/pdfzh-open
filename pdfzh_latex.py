@@ -370,7 +370,7 @@ def api_batch(batch, config):
     return values,data.get('usage',{})
 
 
-def build_translation(files, cache_path, tracking, config, offline):
+def build_translation(files, cache_path, tracking, config, offline, check=None):
     cache=json.loads(cache_path.read_text(encoding='utf-8')) if cache_path.exists() else {}
     legacy=old_cache(tracking)
     segments={}
@@ -449,7 +449,10 @@ def build_translation(files, cache_path, tracking, config, offline):
                 remaining=[]; errors=[]
                 for k,s in batch:
                     try:
-                        accepted[k]=normalize_translation(s,values.get(k))
+                        value=normalize_translation(s,values.get(k))
+                        if check is not None:
+                            check(s,value)
+                        accepted[k]=value
                     except ValueError as e:
                         feedback[k]=str(e)
                         remaining.append((k,s)); errors.append({'id':k,'reason':str(e),'response':values.get(k),
@@ -499,7 +502,7 @@ def build_translation(files, cache_path, tracking, config, offline):
             raise TranslationIncompleteError('密钥无效或无权限；请运行 pdfzh.cmd configure 更换密钥后重试，已有译文不重译。')
         if all('无法连接翻译服务' in r for r in reasons):
             raise TranslationIncompleteError('无法连接翻译服务；请检查网络或代理后重试，已有译文不重译。')
-        raise TranslationIncompleteError(f'{len(failed)} 个片段未通过保护检查；其余译文已缓存，详情见 translation-errors.json')
+        raise TranslationIncompleteError(f'{len(failed)} 个片段未通过检查；其余译文已缓存，详情见 translation-errors.json')
     if errors_path.exists():write_json(errors_path,[])
     return cache,dict(usage)
 

@@ -141,7 +141,35 @@ def rendering_environment(asset_directory):
     return archive, css
 
 
+def _drop_numeric_failures(plan, cache, out):
+    """Validate cached translations; drop segments whose numbers do not survive.
+
+    Returns a list of rejected entries so the caller can record them. The
+    modified cache keeps the document publishable: bad segments fall back to
+    marked original text instead of crashing the whole render.
+    """
+    rejected = []
+    for item in text_items(plan):
+        key = translation.digest(item['segment']['text'])
+        if key not in cache:
+            continue
+        try:
+            native.translated_text(item['segment'], cache[key])
+        except (ValueError, TypeError) as exc:
+            rejected.append({'id': item['id'], 'cache_key': key, 'reason': str(exc)[:200]})
+            cache.pop(key)
+    if rejected:
+        errors_path = out/'translation-errors.json'
+        errors = json.loads(errors_path.read_text(encoding='utf8')) if errors_path.exists() else []
+        errors.extend(rejected)
+        translation.write_json(errors_path, errors)
+        translation.write_json(out/'reflow-text-cache.json', cache)
+        print(f'[翻译] {len(rejected)} 个片段数字校验未通过，保留原文；重新运行只补这些片段', flush=True)
+    return rejected
+
+
 def render(pdf, out, plan, cache, *, preview=False):
+    _drop_numeric_failures(plan, cache, out)
     with fitz.open() as dual:
         return _render(pdf, out, plan, cache, dual, preview=preview)
 
@@ -355,17 +383,14 @@ def main(argv=None):
         try:
             cache, usage = translation.build_translation(
                 [(Path('document'), '', [x['segment'] for x in text_items(plan)])],
-                out/'reflow-text-cache.json', out/'unused-tracking.json', cfg, args.offline)
+                out/'reflow-text-cache.json', out/'unused-tracking.json', cfg, args.offline,
+                check=native.translated_text)
         except translation.TranslationIncompleteError as exc:
             # Network, quota or repeated model errors: publish what was
             # translated; the rest is shown as marked original text.
             if args.offline: raise
             cache = json.loads((out/'reflow-text-cache.json').read_text(encoding='utf8'))
             print(f'[翻译] 部分片段未取得合格译文（{str(exc)[:80]}），以原文标注显示；重新运行只补这些片段', flush=True)
-        # Validate numeric integrity before spending any time rendering.
-        for item in text_items(plan):
-            key = translation.digest(item['segment']['text'])
-            if key in cache: native.translated_text(item['segment'], cache[key])
     try:
         report = render(pdf, out, plan, cache, preview=args.preview_cache)
     except Exception as exc:

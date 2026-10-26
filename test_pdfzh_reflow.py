@@ -327,6 +327,62 @@ class ReflowTests(unittest.TestCase):
             for i, x in enumerate(texts):
                 self.assertEqual(x['source'], f'Body paragraph of page {i+1} with real content.')
 
+    def test_render_tolerates_numeric_integrity_failure_in_cache(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); source = root/'bad.pdf'; out = root/'job'
+            doc = fitz.open()
+            p = doc.new_page()
+            p.insert_text((30, 50), 'Rate is 0.5 s.')
+            p.insert_text((30, 80), 'Unrelated safe line.')
+            doc.save(source); doc.close()
+            plan = document.prepare(source, out, layout=empty_layout(1), ocr=NoOCR())
+            cache = {}
+            for item in reflow.text_items(plan):
+                if '0.5' in item['source']:
+                    # Model split "0.5" into "0" and "5" in the translation,
+                    # and also lost the protected token itself.
+                    cache[translation.digest(item['segment']['text'])] = '速率是 0 5 秒。'
+                else:
+                    cache[translation.digest(item['segment']['text'])] = '安全的无关行。'
+            # Layer 1: render must not crash; the bad segment shows as marked original.
+            report = reflow.render(source, out, plan, dict(cache))
+            self.assertEqual(report['status'], 'needs_review')
+            self.assertFalse(report['translation_complete'])
+            self.assertEqual(report['translated_items'], 1)
+            with fitz.open(report['output_files']['bilingual']) as result:
+                text = result[0].get_text()
+                self.assertIn('未取得合格译文', text)
+                self.assertIn('安全的无关行。', text)
+            errors = json.loads((out/'translation-errors.json').read_text(encoding='utf8'))
+            self.assertEqual(len(errors), 1)
+            self.assertIn('Protected token missing', errors[0]['reason'])
+
+    def test_build_translation_check_rejects_bad_numbers_and_retries(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            segment = {'text': 'Rate is @@P0@@ s.', 'protected': ['0.5'], 'original': 'Rate is 0.5 s.',
+                       'leading': '', 'trailing': '', 'protection_format': 'literal'}
+            calls = []
+            def fake_api(batch, cfg):
+                calls.append(cfg.get('retry_feedback', {}))
+                key = batch[0][0]
+                if len(calls) == 1:
+                    # Bad: model translated the protected token away and split
+                    # the number, leaving only bare "0" and "5" behind.
+                    return {key: '速率是 0 5 秒。'}, {'total_tokens': 10}
+                return {key: '速率是 @@P0@@ 秒。'}, {'total_tokens': 10}
+            # Layer 2: a first bad answer is rejected by the check, retried with
+            # feedback, and the corrected answer is cached.
+            with patch.object(translation, 'api_batch', side_effect=fake_api), \
+                 patch.object(translation.time, 'sleep'):
+                cache, usage = translation.build_translation(
+                    [(Path('t'), '', [segment])], root/'cache.json', root/'tracking.json',
+                    {'key': 'k', 'model': 'm', 'url': 'http://x'}, False,
+                    check=native.translated_text)
+            self.assertEqual(cache[translation.digest(segment['text'])], '速率是 @@P0@@ 秒。')
+            self.assertEqual(len(calls), 2)
+            self.assertTrue(any('Protected token missing' in str(v) for v in calls[1].values()))
+
     def test_whitespace_control_glyph_is_not_silently_dropped(self):
         with tempfile.TemporaryDirectory() as folder,fitz.open() as doc:
             root=Path(folder); page=doc.new_page()
