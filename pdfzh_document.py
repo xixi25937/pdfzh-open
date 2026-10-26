@@ -22,10 +22,23 @@ import pdfzh_styles as styles
 VERSION = 1
 OCR_VERSION = 'rapidocr-onnxruntime-1.4.4-2400-v1'
 MATH_FONT = re.compile(r'cmmi|cmsy|cmex|math|symbol|msam|msbm', re.I)
+MARGIN_BOILERPLATE = re.compile(
+    r'(submit document|copyright|©|www\.|https?://|all rights reserved'
+    r'|page \d+$|- *page \d+|^\d{1,2}-[a-z]{3}-\d{2,4}$|release \d)', re.I)
 
 
 def invalid_text(text):
     return any(unicodedata.category(c) in {'Cc', 'Co'} or c == '\ufffd' for c in text)
+
+
+def _norm_margin_text(text):
+    text = re.sub(r'\d+', '#', text.strip().lower())
+    return re.sub(r'\s+', ' ', text)
+
+
+def _is_shout(text):
+    letters = [c for c in text if c.isalpha()]
+    return len(letters) >= 2 and sum(c.isupper() for c in letters) / len(letters) >= 0.85
 
 
 def area_overlap(a, b):
@@ -362,6 +375,34 @@ def extract_page(page, regions, directory, ocr, ocr_cache, source_sha):
             'native_lines': len(native_lines), 'bad_font_lines': len(bad_boxes)}
 
 
+def demote_margin_fragments(pages, doc, directory):
+    """Repeated headers/footers are boilerplate: keep source pixels, never translate.
+
+    Demoted only when the item sits in the top 60pt / bottom 50pt band, is at
+    most 30 chars, its digit-normalized text appears on >=3 pages, and it is
+    ALL-CAPS or matches a header/footer pattern. Mixed-case body fragments
+    (captions, table cells) stay text even when repeated.
+    """
+    def band(x, h):
+        return 'segment' in x and len(x['source'].strip()) <= 30 and (
+            x['bbox'][1] < 60 or x['bbox'][3] > h - 50)
+
+    seen = {}
+    for pi, p in enumerate(pages):
+        for x in p['items']:
+            if band(x, p['height']):
+                seen.setdefault(_norm_margin_text(x['source']), set()).add(pi)
+    repeated = {k for k, v in seen.items() if len(v) >= 3}
+    for pi, p in enumerate(pages):
+        for i, x in enumerate(p['items']):
+            if not band(x, p['height']) or _norm_margin_text(x['source']) not in repeated:
+                continue
+            if not (_is_shout(x['source']) or MARGIN_BOILERPLATE.search(x['source'])):
+                continue
+            p['items'][i] = {'kind': 'notation', 'bbox': x['bbox'], 'origin': x['origin'],
+                             'asset': crop_asset(doc[pi], x['bbox'], directory), 'id': x['id']}
+
+
 def prepare(pdf, out, *, layout=None, ocr=None):
     out.mkdir(parents=True, exist_ok=True)
     sha = hashlib.sha256(pdf.read_bytes()).hexdigest()
@@ -398,6 +439,7 @@ def prepare(pdf, out, *, layout=None, ocr=None):
             pages.append(info)
             count = sum('segment' in x for x in info['items'])
             print(f'[结构] {i+1}/{len(doc)} 页：{count} 段文字，OCR 补充 {info["ocr_lines"]} 段，待复核 {len(info["issues"])} 项', flush=True)
+        demote_margin_fragments(pages, doc, directory)
         plan = {'version': VERSION, 'source_sha256': sha, 'source': str(pdf),
                 'asset_directory': str(directory), 'pages': pages}
         translation.write_json(out/'document.json', plan)

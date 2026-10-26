@@ -309,6 +309,24 @@ class ReflowTests(unittest.TestCase):
             # no text segments lost
             self.assertIn('Heading with a rule below.', [x.get('source') for x in info['items']])
 
+    def test_repeated_footer_demoted_but_body_text_kept(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); source = root/'footers.pdf'; out = root/'job'
+            doc = fitz.open()
+            for i in range(3):
+                p = doc.new_page(width=420, height=600)
+                p.insert_text((30, 300), f'Body paragraph of page {i+1} with real content.', fontsize=12)
+                p.insert_text((30, 590), 'Submit Documentation Feedback', fontsize=7)
+            doc.save(source); doc.close()
+            plan = document.prepare(source, out, layout=empty_layout(3), ocr=NoOCR())
+            footers = [x for p in plan['pages'] for x in p['items'] if x.get('kind') == 'notation'
+                       and x['bbox'][3] > p['height'] - 50]
+            self.assertEqual(len(footers), 3)
+            texts = [x for p in plan['pages'] for x in p['items'] if 'segment' in x]
+            self.assertEqual(len(texts), 3)
+            for i, x in enumerate(texts):
+                self.assertEqual(x['source'], f'Body paragraph of page {i+1} with real content.')
+
     def test_whitespace_control_glyph_is_not_silently_dropped(self):
         with tempfile.TemporaryDirectory() as folder,fitz.open() as doc:
             root=Path(folder); page=doc.new_page()
