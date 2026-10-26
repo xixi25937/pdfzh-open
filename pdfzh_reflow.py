@@ -156,86 +156,122 @@ def _render(pdf, out, plan, cache, dual, *, preview=False):
         for pi, info in enumerate(plan['pages']):
             width = max(420, min(info['width'], 720))
             height = max(595, min(info['height'], 1000))
-            buffer = BytesIO()
-            writer = fitz.DocumentWriter(buffer)
             def position(pos):
                 if pos.id and pos.open_close & 2:
                     finished_ids.add(pos.id)
 
+            # Each source page renders independently. A failure leaves dual and
+            # mapping untouched, and the page is replaced by a single notice
+            # page so the rest of the document still publishes.
             try:
-                # Place independent content blocks into the remaining page.
-                # A single giant HTML tree can skip sibling blocks in MuPDF
-                # when an anonymous inline box crosses a page boundary.
-                device = writer.begin_page(fitz.Rect(0, 0, width, height))
-                y, continuation = 43, 0
-                blocks = []
-                if preview or info['issues']:
-                    notice = '缓存预览：仅展示已有译文，未调用翻译接口。' if preview else ''
-                    if info['issues']:
-                        notice += '本页有文字识别待复核区域，详情见质量报告。'
-                    blocks.append(('<html><body><p class="warning">'+notice+'</p></body></html>', 0))
-                if not info['items']:
-                    blocks.append(('<html><body><p>原页未提取到可翻译文字。</p></body></html>', 0))
-                for item in info['items']:
-                    html=page_html({'items': [item], 'issues': []}, cache, width, height, False if 'segment' not in item else preview)
-                    html=html.replace('<p class="warning">缓存预览：仅展示已有译文，未调用翻译接口。</p>', '')
-                    keep_height=0
-                    if 'asset' in item:
-                        asset=item['asset']
-                        scale=min(1,(width-64)/asset['width'],(height-160)/asset['height'])
-                        keep_height=asset['height']*scale+(20 if item['kind']=='notation' else 62)
-                    blocks.append((html,keep_height))
-                for html, keep_height in blocks:
-                    story = fitz.Story(html=html, user_css=css, archive=archive)
-                    if y>43 and height-28-y<keep_height:
-                        writer.end_page(); device=writer.begin_page(fitz.Rect(0,0,width,height))
-                        y=43; continuation+=1
-                    while True:
-                        if height-28-y < 65:
+                buffer = BytesIO()
+                writer = fitz.DocumentWriter(buffer)
+                try:
+                    # Place independent content blocks into the remaining page.
+                    # A single giant HTML tree can skip sibling blocks in MuPDF
+                    # when an anonymous inline box crosses a page boundary.
+                    device = writer.begin_page(fitz.Rect(0, 0, width, height))
+                    y, continuation = 43, 0
+                    blocks = []
+                    if preview or info['issues']:
+                        notice = '缓存预览：仅展示已有译文，未调用翻译接口。' if preview else ''
+                        if info['issues']:
+                            notice += '本页有文字识别待复核区域，详情见质量报告。'
+                        blocks.append(('<html><body><p class="warning">'+notice+'</p></body></html>', 0))
+                    if not info['items']:
+                        blocks.append(('<html><body><p>原页未提取到可翻译文字。</p></body></html>', 0))
+                    for item in info['items']:
+                        html=page_html({'items': [item], 'issues': []}, cache, width, height, False if 'segment' not in item else preview)
+                        html=html.replace('<p class="warning">缓存预览：仅展示已有译文，未调用翻译接口。</p>', '')
+                        keep_height=0
+                        if 'asset' in item:
+                            asset=item['asset']
+                            scale=min(1,(width-64)/asset['width'],(height-160)/asset['height'])
+                            keep_height=asset['height']*scale+(20 if item['kind']=='notation' else 62)
+                        blocks.append((html,keep_height))
+                    for html, keep_height in blocks:
+                        story = fitz.Story(html=html, user_css=css, archive=archive)
+                        if y>43 and height-28-y<keep_height:
+                            writer.end_page(); device=writer.begin_page(fitz.Rect(0,0,width,height))
+                            y=43; continuation+=1
+                        while True:
+                            if height-28-y < 65:
+                                writer.end_page(); device = writer.begin_page(fitz.Rect(0, 0, width, height))
+                                y = 43; continuation += 1
+                            more, filled = story.place(fitz.Rect(28, y, width-28, height-28))
+                            story.element_positions(position)
+                            story.draw(device)
+                            y = max(y+1, fitz.Rect(filled).y1)
+                            if not more:
+                                break
                             writer.end_page(); device = writer.begin_page(fitz.Rect(0, 0, width, height))
                             y = 43; continuation += 1
-                        more, filled = story.place(fitz.Rect(28, y, width-28, height-28))
-                        story.element_positions(position)
-                        story.draw(device)
-                        y = max(y+1, fitz.Rect(filled).y1)
-                        if not more:
-                            break
-                        writer.end_page(); device = writer.begin_page(fitz.Rect(0, 0, width, height))
-                        y = 43; continuation += 1
-                        if continuation > 500:
-                            raise RuntimeError(f'第 {pi+1} 页无法安全分页，已停止，缓存保留。')
-                writer.end_page()
-            finally:
-                writer.close()
-            with fitz.open(stream=buffer.getvalue(), filetype='pdf') as right:
-                for page in right:
-                    for picture in page.get_image_info():
-                        bbox=fitz.Rect(picture['bbox'])
-                        if bbox.x0<27 or bbox.x1>width-27 or bbox.y0<42 or bbox.y1>height-27:
-                            raise RuntimeError(f'原文第 {pi+1} 页的图形超出中文页边界，已停止发布。')
-                for j, page in enumerate(right):
-                    header = f'原文第 {pi+1} 页 · 中文 {j+1}/{len(right)}' + (' · 缓存预览' if preview else '')
+                            if continuation > 500:
+                                raise RuntimeError(f'第 {pi+1} 页无法安全分页，已停止，缓存保留。')
+                    writer.end_page()
+                finally:
+                    writer.close()
+                with fitz.open(stream=buffer.getvalue(), filetype='pdf') as right:
+                    for page in right:
+                        for picture in page.get_image_info():
+                            bbox=fitz.Rect(picture['bbox'])
+                            if bbox.x0<27 or bbox.x1>width-27 or bbox.y0<42 or bbox.y1>height-27:
+                                raise RuntimeError(f'原文第 {pi+1} 页的图形超出中文页边界，已停止发布。')
+                    for j, page in enumerate(right):
+                        header = f'原文第 {pi+1} 页 · 中文 {j+1}/{len(right)}' + (' · 缓存预览' if preview else '')
+                        page.insert_htmlbox(fitz.Rect(28, 12, width-28, 37), escape(header),
+                                            css='body{font-size:9pt;color:#596579}', scale_low=1)
+                        page.draw_line((28, 38), (width-28, 38), color=(.8,.83,.86), width=.5)
+                    # Finish editing the source before MuPDF creates its graft map.
+                    # Adding font objects after the first copied page invalidates it.
+                    # Subset ONLY the generated side: source fonts can be malformed
+                    # yet render correctly and must never be rewritten.
+                    right.subset_fonts()
+                    # Check completeness BEFORE touching dual and mapping, so a
+                    # failed page never needs a rollback.
+                    expected = {x['id'] for x in info['items']}
+                    missing = expected - finished_ids
+                    if missing:
+                        raise RuntimeError('排版没有完整放入这些区域：' + ', '.join(sorted(missing)))
+                    for j, page in enumerate(right):
+                        ow, oh = original[pi].rect.width, original[pi].rect.height
+                        sheet = dual.new_page(width=ow+width, height=max(oh, height))
+                        if original[pi].get_contents():
+                            sheet.show_pdf_page(fitz.Rect(0, 0, ow, oh), original, pi)
+                        sheet.show_pdf_page(fitz.Rect(ow, 0, ow+width, height), right, j)
+                        mapping.append({'output_page': len(dual), 'source_page': pi+1, 'part': j+1,
+                                        'parts': len(right), 'left_width': ow, 'left_height': oh})
+                print(f'[排版] 原文 {pi+1}/{len(original)} 页 → {mapping[-1]["parts"]} 页中文，全部区域已放入', flush=True)
+            except Exception as exc:
+                reason = str(exc)
+                info['issues'].append({'kind': 'layout_failed', 'text': reason[:200]})
+                print(f'[排版] 原文第 {pi+1} 页中文排版失败（{reason[:120]}），该页保留原文对照', flush=True)
+                buffer = BytesIO()
+                writer = fitz.DocumentWriter(buffer)
+                try:
+                    device = writer.begin_page(fitz.Rect(0, 0, width, height))
+                    notice = ('本页中文排版失败（' + reason[:120] + '），请对照左侧原文；译文缓存已保留。')
+                    story = fitz.Story(html='<html><body><p class="warning">'+escape(notice)+'</p></body></html>',
+                                       user_css=css, archive=archive)
+                    story.place(fitz.Rect(28, 43, width-28, height-28))
+                    story.draw(device)
+                    writer.end_page()
+                finally:
+                    writer.close()
+                with fitz.open(stream=buffer.getvalue(), filetype='pdf') as right:
+                    header = f'原文第 {pi+1} 页 · 中文 1/1' + (' · 缓存预览' if preview else '')
+                    page = right[0]
                     page.insert_htmlbox(fitz.Rect(28, 12, width-28, 37), escape(header),
                                         css='body{font-size:9pt;color:#596579}', scale_low=1)
                     page.draw_line((28, 38), (width-28, 38), color=(.8,.83,.86), width=.5)
-                # Finish editing the source before MuPDF creates its graft map.
-                # Adding font objects after the first copied page invalidates it.
-                # Subset ONLY the generated side: source fonts can be malformed
-                # yet render correctly and must never be rewritten.
-                right.subset_fonts()
-                for j, page in enumerate(right):
+                    right.subset_fonts()
                     ow, oh = original[pi].rect.width, original[pi].rect.height
                     sheet = dual.new_page(width=ow+width, height=max(oh, height))
                     if original[pi].get_contents():
                         sheet.show_pdf_page(fitz.Rect(0, 0, ow, oh), original, pi)
-                    sheet.show_pdf_page(fitz.Rect(ow, 0, ow+width, height), right, j)
-                    mapping.append({'output_page': len(dual), 'source_page': pi+1, 'part': j+1,
-                                    'parts': len(right), 'left_width': ow, 'left_height': oh})
-            expected = {x['id'] for x in info['items']}
-            missing = expected - finished_ids
-            if missing:
-                raise RuntimeError('排版没有完整放入这些区域：' + ', '.join(sorted(missing)))
-            print(f'[排版] 原文 {pi+1}/{len(original)} 页 → {len(right) if not right.is_closed else mapping[-1]["parts"]} 页中文，全部区域已放入', flush=True)
+                    sheet.show_pdf_page(fitz.Rect(ow, 0, ow+width, height), right, 0)
+                    mapping.append({'output_page': len(dual), 'source_page': pi+1, 'part': 1,
+                                    'parts': 1, 'left_width': ow, 'left_height': oh})
     filename = pdf.stem + ('-缓存预览.pdf' if preview else '-中英重排.pdf')
     target = out/filename
     # Write to a temporary result first; an interrupted render never replaces
@@ -247,9 +283,10 @@ def _render(pdf, out, plan, cache, dual, *, preview=False):
     target = native.publish_copy(temporary, target)
     temporary.unlink(missing_ok=True)
     issues = [{'page': i+1, **issue} for i,p in enumerate(plan['pages']) for issue in p['issues']]
+    layout_failed = [x for x in issues if x['kind'] == 'layout_failed']
     missing = [x['id'] for x in text_items(plan) if translation.digest(x['segment']['text']) not in cache]
     report = {'engine': 'reflow', 'source_sha256': plan['source_sha256'],
-              'automated_checks_passed': True, 'preview': preview,
+              'automated_checks_passed': not layout_failed, 'preview': preview,
               'translation_complete': not preview and not missing and not issues,
               'status': 'preview' if preview else 'needs_review' if issues or missing else 'translated',
               'source_pages': len(plan['pages']), 'output_pages': len(mapping),
@@ -270,9 +307,12 @@ def write_report(out, report):
              'translated': '已提取文字已翻译并排版'}[report['status']]
     rows = ''.join(f'<tr><td>{x["page"]}</td><td>{escape(x["kind"])}</td><td>{escape(x.get("text", ""))}</td></tr>'
                    for x in report['recognition_issues'])
+    failed = sorted({x['page'] for x in report['recognition_issues'] if x['kind'] == 'layout_failed'})
+    fallback = (f'<p><strong>第 {"、".join(map(str, failed))} 页中文排版失败，已退回原文对照页；译文缓存已保留。</strong></p>'
+                if failed else '')
     html = f'''<!doctype html><html lang="zh"><meta charset="utf-8"><title>PDFZH 质量报告</title>
     <style>body{{font:16px/1.7 sans-serif;max-width:900px;margin:40px auto;padding:20px}}td,th{{padding:8px;border:1px solid #ccc}}table{{border-collapse:collapse}}</style>
-    <h1>{title}</h1><p>原文 {report['source_pages']} 页，双语输出 {report['output_pages']} 页。
+    <h1>{title}</h1>{fallback}<p>原文 {report['source_pages']} 页，双语输出 {report['output_pages']} 页。
     已提取文字 {report['text_items']} 段，已翻译 {report['translated_items']} 段，缺缓存 {len(report['missing_ids'])} 段。
     识别待复核 {len(report['recognition_issues'])} 项。</p>
     <p>续页重复展示对应原页。右侧小字坐标是原页的位置（PDF 点），便于查找图表标注。

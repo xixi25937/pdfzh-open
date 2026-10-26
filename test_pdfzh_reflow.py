@@ -247,6 +247,50 @@ class ReflowTests(unittest.TestCase):
             with fitz.open(report['output_files']['bilingual']) as result:
                 self.assertEqual(len(result), 1)
 
+    def test_failed_page_falls_back_to_notice_and_others_render(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); source = root/'three.pdf'; out = root/'job'
+            doc = fitz.open()
+            for i, text in enumerate(['First page', 'Second page', 'Third page']):
+                p = doc.new_page(width=420, height=300)
+                p.insert_text((35, 70), text, fontsize=16)
+            doc.save(source); doc.close()
+            plan = document.prepare(source, out, layout=empty_layout(3), ocr=NoOCR())
+            cache = {translation.digest(x['segment']['text']): '译文'+x['segment']['text'] for x in reflow.text_items(plan)}
+            real_page_html = reflow.page_html
+            calls = []
+            def flaky_page_html(page, cache, width, height, preview):
+                calls.append(page['items'][0]['id'])
+                if len(calls) == 2:  # second block overall -> page 2 body fails
+                    raise RuntimeError('mock layout failure')
+                return real_page_html(page, cache, width, height, preview)
+            with patch.object(reflow, 'page_html', side_effect=flaky_page_html):
+                report = reflow.render(source, out, plan, cache)
+            self.assertEqual(report['status'], 'needs_review')
+            self.assertFalse(report['translation_complete'])
+            self.assertFalse(report['automated_checks_passed'])
+            failed = [x for x in report['recognition_issues'] if x['kind'] == 'layout_failed']
+            self.assertEqual([x['page'] for x in failed], [2])
+            self.assertIn('mock layout failure', failed[0]['text'])
+            # every source page has at least one output page
+            by_source = {}
+            for row in report['page_mapping']:
+                by_source.setdefault(row['source_page'], 0)
+                by_source[row['source_page']] += 1
+            self.assertEqual(sorted(by_source), [1, 2, 3])
+            result = fitz.open(report['output_files']['bilingual'])
+            self.assertEqual(len(result), report['output_pages'])
+            failed_rows = [r for r in report['page_mapping'] if r['source_page'] == 2]
+            self.assertEqual(len(failed_rows), 1)
+            row = failed_rows[0]
+            right = result[row['output_page']-1].get_text(clip=fitz.Rect(row['left_width'], 0, result[row['output_page']-1].rect.width, 600))
+            self.assertIn('本页中文排版失败', right)
+            # other pages still show translations
+            good_rows = [r for r in report['page_mapping'] if r['source_page'] != 2]
+            text = ''.join(result[r['output_page']-1].get_text(clip=fitz.Rect(r['left_width'], 0, 2000, 2000)) for r in good_rows)
+            self.assertIn('译文', text)
+            result.close()
+
     def test_whitespace_control_glyph_is_not_silently_dropped(self):
         with tempfile.TemporaryDirectory() as folder,fitz.open() as doc:
             root=Path(folder); page=doc.new_page()
