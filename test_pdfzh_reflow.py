@@ -291,6 +291,24 @@ class ReflowTests(unittest.TestCase):
             self.assertIn('译文', text)
             result.close()
 
+    def test_decorative_hairline_is_dropped_but_real_figure_kept(self):
+        with tempfile.TemporaryDirectory() as folder, fitz.open() as doc:
+            root = Path(folder); page = doc.new_page(width=420, height=400)
+            page.insert_text((30, 40), 'Heading with a rule below.', fontsize=13)
+            page.draw_line((30, 50), (390, 50), color=(0, 0, 0), width=3)
+            page.draw_rect(fitz.Rect(30, 100, 300, 250), color=(0, .4, .8), fill=(.8, .9, 1))
+            # The rule is vector art, but the layout model marks both as figures.
+            layout = {'pages': [{'regions': [
+                {'kind': 'figure', 'confidence': .95, 'bbox': [28, 47, 392, 52]},
+                {'kind': 'figure', 'confidence': .95, 'bbox': [28, 98, 302, 252]}]}]}
+            info = document.extract_page(page, layout['pages'][0]['regions'], root, NoOCR(),
+                                         root/'ocr.json', 'source')
+            figures = [x for x in info['items'] if x.get('origin') == 'visual']
+            self.assertEqual(len(figures), 1)
+            self.assertEqual(figures[0]['bbox'], [28, 98, 302, 252])
+            # no text segments lost
+            self.assertIn('Heading with a rule below.', [x.get('source') for x in info['items']])
+
     def test_whitespace_control_glyph_is_not_silently_dropped(self):
         with tempfile.TemporaryDirectory() as folder,fitz.open() as doc:
             root=Path(folder); page=doc.new_page()

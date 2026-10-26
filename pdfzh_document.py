@@ -247,6 +247,11 @@ def extract_page(page, regions, directory, ocr, ocr_cache, source_sha):
                 continue
             if not any(area_overlap(box, x['bbox']) > .5 for x in visual_regions):
                 visual_regions.append({'kind': 'figure', 'bbox': list(box)})
+    # Hairline rules and color bars are decoration, not figures; they carry no
+    # text and would each cost a caption plus a noise image on the right page.
+    visual_regions = [v for v in visual_regions
+                      if not (v['kind'] == 'figure' and min(fitz.Rect(v['bbox']).width,
+                                                            fitz.Rect(v['bbox']).height) <= 8)]
     for region in visual_regions:
         items.append({**region, 'asset': crop_asset(page, region['bbox'], directory), 'origin': 'visual'})
     formula_boxes = [fitz.Rect(v['bbox']) for v in visual_regions if v['kind'] == 'isolate_formula']
