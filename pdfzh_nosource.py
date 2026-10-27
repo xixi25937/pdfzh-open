@@ -158,10 +158,13 @@ def write_islands(doc,plan,path):
                         boxes=[tuple(m+(-.2,-.2,.2,.2)) for m in members]
                         near=[x for x in glyphs if not(x[0][2]<clip.x0 or x[0][0]>clip.x1 or x[0][3]<clip.y0 or x[0][1]>clip.y1)]
                         # Member glyphs are those of the member spans themselves.
-                        # Box tests fail here: a CMEX hat's box can be 3x the font
-                        # size and swallow the next row's glyphs whole.
+                        # Span-box equality misses CMSY/CMEX symbols: their rawdict
+                        # span box is the tall font box while math_islands recorded
+                        # the tight 'dict' box. The ink centre sits in the recorded
+                        # member box either way.
                         def own(sp):return any(max(abs(u-v) for u,v in zip(sp,m))<.3 for m in members)
-                        mine=[x for x in near if own(x[1])] or [x for x in near if any(a<=x[0][0] and x[0][2]<=c and b<=x[0][1] and x[0][3]<=d for a,b,c,d in boxes)]
+                        def centred(ink):return any(a-.2<=(ink[0]+ink[2])/2<=c+.2 and b-.2<=(ink[1]+ink[3])/2<=d+.2 for a,b,c,d in boxes)
+                        mine=[x for x in near if own(x[1]) or (x[2].strip() and centred(x[3]))]
                         kept={x[0] for x in mine}
                         # MuPDF erases by font-height box; spaces have no ink.
                         keep=[x[0] for x in mine if x[2].strip()]

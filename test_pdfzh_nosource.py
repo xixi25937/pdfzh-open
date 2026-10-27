@@ -74,6 +74,23 @@ class NativeTests(unittest.TestCase):
         out=app.island_escape(s)('令牌'+chr(app.ISLAND_BASE)+'，')
         self.assertEqual(out.count(r'\hskip'),1)
 
+    def test_island_clipping_keeps_cmsy_symbols(self):
+        # Adam p13: ‖g_t‖₂≤G. CMSY span boxes are tight in 'dict' (what
+        # math_islands records as members) but font-tall in 'rawdict' (what
+        # write_islands compares), so span-box equality dropped ‖ ≤ ∞.
+        src=app.HERE/'test-island-cmsy.pdf'
+        with pymupdf.open(src) as doc:
+            slots,_=app.blocks_for_page(doc[0],[])
+            plan={'pages':[{'slots':slots}]}
+            with tempfile.TemporaryDirectory() as folder:
+                out=Path(folder)/'islands.pdf'
+                app.write_islands(doc,plan,out)
+                with pymupdf.open(out) as islands:
+                    text=''.join(p.get_text() for p in islands)
+        for symbol in '∥≤∞∈−√≜':
+            self.assertIn(symbol,text)
+        self.assertNotIn('Lemma',text)  # neighbouring prose stays erased
+
     def test_inline_math_becomes_one_protected_island(self):
         def sp(t,font,size,x0,x1,y=(0,10)):
             return {'text':t,'font':font,'size':size,'flags':0,'color':0,'bbox':(x0,y[0],x1,y[1]),'origin':(x0,8)}
