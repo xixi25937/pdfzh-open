@@ -84,11 +84,15 @@ def main(argv=None):
     parser.add_argument('input',nargs='?',help='PDF 路径，或 configure / results / doctor；省略则打开文件选择框')
     parser.add_argument('--offline',action='store_true',help='只用已有译文缓存，不调用翻译 API')
     parser.add_argument('--analyze-only',action='store_true',help='只检查结构，不翻译')
-    parser.add_argument('--mode',choices=['reflow','original'],default='reflow',help='默认 reflow：中文可续页；original：旧版原位排版，需要 TeX Live')
+    parser.add_argument('--mode',choices=['reflow','original'],help='默认 original：中文排在原文位置，版式与原文一致，需要 TeX Live；未安装时自动用 reflow：中文可续页')
     parser.add_argument('--preview-cache',action='store_true',help='重排模式仅用缓存生成预览；缺译文明确标注，不调用翻译接口')
     parser.add_argument('--output',type=Path,help='输出根目录；默认在原 PDF 旁的“翻译结果”')
     parser.add_argument('--no-open',action='store_true',help='完成后不打开结果文件夹')
     args=parser.parse_args(argv)
+    if args.mode is None:
+        args.mode='reflow' if args.preview_cache or not all(shutil.which(n) for n in ('xelatex','latexmk','fc-match')) else 'original'
+        if args.mode=='reflow' and not args.preview_cache and args.input not in ('configure','doctor','results'):
+            print('[提示] 未找到 TeX Live（xelatex/latexmk），改用重排模式；版式与原文不同。安装 TeX Live 后可获得与原文一致的版式。')
     if args.preview_cache and args.mode!='reflow':parser.error('--preview-cache 仅用于 reflow 模式')
     if args.input=='configure':configure();return 0
     if args.input=='doctor':doctor();return 0

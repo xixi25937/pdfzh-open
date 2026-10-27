@@ -48,11 +48,23 @@ class UserTests(unittest.TestCase):
             with patch.object(user,'api_key',return_value='not-a-real-key'),patch.object(user,'load_settings',return_value={}), \
                  patch.object(user,'save_settings') as save,patch.object(cli,'reveal') as reveal, \
                  patch.object(cli.subprocess,'run',return_value=subprocess.CompletedProcess([],0)) as run:
-                self.assertEqual(cli.main([str(pdf),'--no-open']),0)
+                self.assertEqual(cli.main([str(pdf),'--no-open','--mode','reflow']),0)
                 friendly=Path(save.call_args.args[0]['last_result'])
                 self.assertEqual(friendly.read_bytes(),b'result');reveal.assert_not_called()
                 self.assertNotIn('not-a-real-key',' '.join(run.call_args.args[0]))
                 self.assertEqual(run.call_args.kwargs['env']['DEEPSEEK_API_KEY'],'not-a-real-key')
+
+    def test_default_mode_is_original_with_tex_and_reflow_without(self):
+        with tempfile.TemporaryDirectory() as folder:
+            pdf=Path(folder)/'demo.pdf';pdf.write_bytes(b'fake');output=StringIO()
+            for tex,engine in ((True,'pdfzh_nosource.py'),(False,'pdfzh_reflow.py')):
+                with patch.object(cli.shutil,'which',return_value='tex' if tex else None), \
+                     patch.object(cli.subprocess,'run',return_value=subprocess.CompletedProcess([],2)) as run, \
+                     redirect_stdout(output):
+                    cli.main([str(pdf),'--offline','--no-open'])
+                self.assertEqual(Path(run.call_args.args[0][1]).name,engine)
+            self.assertIn('未找到 TeX Live',output.getvalue())
+            self.assertEqual(output.getvalue().count('未找到 TeX Live'),1)
 
     def test_missing_translation_does_not_recommend_offline_as_a_fix(self):
         with tempfile.TemporaryDirectory() as folder:
