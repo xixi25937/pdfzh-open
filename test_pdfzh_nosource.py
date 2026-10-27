@@ -291,6 +291,97 @@ class NativeTests(unittest.TestCase):
             self.assertEqual(columns[1]['bbox'],[112,61,208,99])
             self.assertEqual(app.column_translations({'columns':columns,'translation':'最小值典型值最大值'}),['最小值','典型值','最大值'])
 
+    def test_residual_words_are_word_erased_not_slot_rejected(self):
+        # LoRA p19: a union span box of "Learning Rate 5E-04 5E-04 ..." skips
+        # the short glyphs of the table note "rq = rv = 8"; after the line
+        # strips the words survive inside the layout box. Word-level strips
+        # through each word's centre remove them without touching the prose
+        # on the next row, so the slot keeps its translation instead of a
+        # retained_text_collision. Words of a plan-retained region must
+        # survive: they are the only copy left on the page (Adam p2).
+        with pymupdf.open() as d:
+            p=d.new_page(width=400,height=200)
+            p.insert_text((30,40),'Learning Rate 5E-04 5E-04 4E-04 4E-04',fontsize=9)
+            # Short glyphs on a neighbouring line whose box ends up inside
+            # the slot's union box (like rq/rv in LoRA's Table 9).
+            p.insert_text((250,52),'rq = rv = 8',fontsize=4)
+            p.insert_text((30,64),'Warmup ratio 0.1 0.1 0.1 0.1',fontsize=9)
+            slots,retained=app.blocks_for_page(p,[])
+            s=next(x for x in slots if 'Learning' in x['source'])
+            for box in s['erase_rects']:
+                p.add_redact_annot(app.erase_core(box),fill=None)
+            p.apply_redactions(images=0,graphics=0)
+            box=pymupdf.Rect(s['bbox'])
+            hits=[w for w in p.get_text('words') if pymupdf.Point((w[0]+w[2])/2,(w[1]+w[3])/2) in box]
+            if hits:
+                for w in hits:
+                    p.add_redact_annot(app.erase_core(w[:4]),fill=None)
+                p.apply_redactions(images=0,graphics=0)
+            self.assertFalse([w for w in p.get_text('words') if pymupdf.Point((w[0]+w[2])/2,(w[1]+w[3])/2) in box])
+            # The untouched row below keeps every word at its place.
+            self.assertTrue(p.search_for('Warmup'))
+            self.assertTrue(p.search_for('0.1'))
+        # A word the plan already keeps (overlapping_text) is neither erased
+        # nor a collision: it is the only copy of that text on the page.
+        with pymupdf.open() as d:
+            p=d.new_page(width=400,height=200)
+            p.insert_text((30,40),'The algorithm updates exponential moving averages.',fontsize=9)
+            p.insert_text((30,52),'Note that the efficiency of algorithm 1 can be improved.',fontsize=9)
+            slots,retained=app.blocks_for_page(p,[])
+            s=next(x for x in slots if 'updates' in x['source'])
+            other=next(x for x in slots if 'efficiency' in x['source'])
+            slots.remove(other)
+            retained.append({'kind':'overlapping_text','bbox':list(other['bbox']),'text':other['source']})
+            for slot in slots:
+                for box in slot.get('erase_rects',[slot['bbox']]):
+                    p.add_redact_annot(app.erase_core(box),fill=None)
+            p.apply_redactions(images=0,graphics=0)
+            zones=[pymupdf.Rect(r['bbox']) for r in retained if r.get('bbox')]
+            box=pymupdf.Rect(s['bbox'])
+            # The engine's residual-word pass must leave the retained words
+            # alone and report no collision. Simulate compile_overlay's loop.
+            hits=[w for w in p.get_text('words') if pymupdf.Point((w[0]+w[2])/2,(w[1]+w[3])/2) in box]
+            remaining=[w for w in hits if not any((z & pymupdf.Rect(w[:4])).get_area()>.5*pymupdf.Rect(w[:4]).get_area() for z in zones)]
+            self.assertFalse(remaining)
+            self.assertTrue(p.search_for('efficiency'))
+            # compile_overlay's residual-word pass leaves plan-retained
+            # words in place and reports no collision for this slot.
+            import io, contextlib, tempfile, shutil, hashlib
+            with tempfile.TemporaryDirectory(prefix='pdfzh-collision-') as folder:
+                root=Path(folder);src=root/'t.pdf';out=root/'out';out.mkdir()
+                with pymupdf.open() as d2:
+                    p2=d2.new_page(width=400,height=200)
+                    # Two paragraphs close enough that a union layout box
+                    # covers the second one's words (like Adam p2).
+                    p2.insert_text((30,40),'The algorithm updates exponential moving averages.',fontsize=9)
+                    p2.insert_text((30,58),'Note that the efficiency of algorithm 1 can be improved upon by changing.',fontsize=9)
+                    d2.save(src)
+                latex.write_json(out/'layout.json',{'sha256':hashlib.sha256(src.read_bytes()).hexdigest(),
+                    'pages':[{'regions':[]}]})
+                plan=app.prepare(src,out)
+                # Move the second paragraph into retained like the engine
+                # does for overlapping_text, so its words are not erased.
+                info=plan['pages'][0]
+                self.assertEqual(len(info['slots']),2)
+                moving=[x for x in info['slots'] if 'efficiency' in x['source']]
+                for x in moving:
+                    info['slots'].remove(x)
+                    info['retained'].append({'kind':'overlapping_text','bbox':list(x['bbox']),'text':x['source']})
+                cache={}
+                for page in plan['pages']:
+                    for slot in page['slots']:
+                        value='该算法更新指数移动平均值。'
+                        app.translated_text(slot['segment'],value)  # must validate
+                        cache[latex.digest(slot['segment']['text'])]=value
+                with patch.object(latex,'api_batch',side_effect=AssertionError('paid API forbidden')):
+                    report=app.compile_overlay(src,out,plan,cache)
+                collisions=[r for r in report['retained_regions'] if r['kind']=='retained_text_collision']
+                self.assertFalse(collisions, [r.get('reason') for r in report['retained_regions']])
+                with pymupdf.open(report['output_files']['chinese']) as cn:
+                    text=cn[0].get_text()
+                    self.assertIn('efficiency',text)
+                    self.assertIn('算法',text,[r.get('kind') for r in report['retained_regions']])
+
     def test_locked_output_publishes_revision_without_changing_original(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);src=root/'new.pdf';dst=root/'old.pdf'

@@ -1356,11 +1356,32 @@ def compile_overlay(pdf,out,plan,cache,*,allow_fallback=True,rounds=0):
                         graphics=pymupdf.PDF_REDACT_LINE_ART_REMOVE_IF_COVERED,text=pymupdf.PDF_REDACT_TEXT_NONE)
             # A retained line can sit inside the larger layout box even when
             # none of its glyphs were erased. Do not print Chinese over it.
-            remaining_words=page.get_text('words')
-            for s in info['slots']:
+            # Short glyphs a union span box could not reach (LoRA's "rq = rv",
+            # BatchNorm's "Var[x]") survive the line strips as small words; a
+            # word-level strip removes them exactly. Words the plan already
+            # keeps (overlapping_text) and island glyphs are never erased.
+            keep=info.get('retained',[])
+            for s in list(info['slots']):
                 box=pymupdf.Rect(s['bbox'])
-                if any(pymupdf.Point((w[0]+w[2])/2,(w[1]+w[3])/2) in box for w in remaining_words):
+                hits=[w for w in page.get_text('words') if pymupdf.Point((w[0]+w[2])/2,(w[1]+w[3])/2) in box]
+                if not hits:continue
+                islands=[pymupdf.Rect(i['bbox']) for i in s.get('islands',[])]
+                zones=[pymupdf.Rect(r['bbox']) for r in keep if r.get('bbox')]
+                remaining=[w for w in hits if not any(i.contains(pymupdf.Rect(w[:4])) for i in islands)
+                           and not any((z & pymupdf.Rect(w[:4])).get_area()>.5*pymupdf.Rect(w[:4]).get_area() for z in zones)]
+                for w in remaining:
+                    page.add_redact_annot(erase_core(w[:4]),fill=None)
+                if remaining:
+                    page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE,
+                        graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,text=pymupdf.PDF_REDACT_TEXT_REMOVE)
+                # Words of a plan-retained region (overlapping_text) do not
+                # collide with the translation: the region keeps its own
+                # English anyway, and the slot's box may share the strip.
+                rest=[w for w in page.get_text('words') if pymupdf.Point((w[0]+w[2])/2,(w[1]+w[3])/2) in box]
+                if any(not any((z & pymupdf.Rect(w[:4])).get_area()>.5*pymupdf.Rect(w[:4]).get_area() for z in zones) for w in rest):
                     collisions.append((pi,s))
+                # ponytail: without this zones-exemption the whole paragraph
+                # falls back to English whenever a kept region sits inside it.
             errors=retained_position_errors(original[pi],page,info['slots'])
             if errors:position_errors.append({'page':pi+1,'changed_words':errors})
         latex.write_json(out/'background-qa.json',{'retained_position_errors':position_errors})
