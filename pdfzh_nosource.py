@@ -960,6 +960,8 @@ def blocks_for_page(page,regions):
         tables.extend(good)
     protected.extend(formula_regions)
     for rect in formula_regions: retained.append({'kind':'formula','bbox':list(rect),'reason':'公式保持原版矢量内容'})
+    figure_regions=[pymupdf.Rect(r['bbox']) for r in regions if r['kind']=='figure' and r['confidence']>=0.6]
+    protected.extend(figure_regions)
 
     def add(rect,lines,kind):
         # Inspect raw spans BEFORE whitespace normalization/prose filtering.
@@ -1103,8 +1105,13 @@ def blocks_for_page(page,regions):
                 if any(lc in r for r in table_boxes):flush();continue
                 if any(lc in r for r in protected):
                     flush()
-                    if prose(body_text([line])):retained.append({'kind':'protected_region_text','bbox':list(lr),
-                        'text':body_text([line]),'reason':'此文字行与原版公式区域相交'})
+                    if prose(body_text([line])):
+                        if any(lc in r for r in figure_regions):
+                            retained.append({'kind':'figure_text','bbox':list(lr),
+                                'text':body_text([line]),'reason':'图内文字保持原样'})
+                        else:
+                            retained.append({'kind':'protected_region_text','bbox':list(lr),
+                                'text':body_text([line]),'reason':'此文字行与原版公式区域相交'})
                     continue
                 if free and (lr.y0-free[-1]['bbox'][3]>lr.height*.8 or lr.x0>free[-1]['bbox'][2]):flush()
                 free.append(line)

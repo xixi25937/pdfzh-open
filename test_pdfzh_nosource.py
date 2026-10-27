@@ -357,6 +357,29 @@ class NativeTests(unittest.TestCase):
             self.assertIn('First sentence',text);self.assertIn('Last sentence',text)
             self.assertNotIn('Protected formula',text)
 
+    def test_figure_region_keeps_labels_and_body_outside_still_translates(self):
+        with pymupdf.open() as d:
+            p=d.new_page(width=400,height=400)
+            p.insert_text((50,60),'Vision Transformer',fontsize=8)  # label inside figure
+            p.insert_text((25,180),'The quick brown fox jumps over the lazy dog.',fontsize=10)  # body outside
+            slots,retained=app.blocks_for_page(p,[{'kind':'figure','confidence':0.95,'bbox':[40,40,200,100]}])
+            text=' '.join(s['source'] for s in slots)
+            self.assertNotIn('Vision Transformer',text)
+            self.assertIn('quick brown fox',text)
+            fig=[r for r in retained if r['kind']=='figure_text']
+            self.assertEqual(len(fig),1)
+            self.assertIn('Vision Transformer',fig[0]['text'])
+
+    def test_caption_outside_figure_is_untouched(self):
+        with pymupdf.open() as d:
+            p=d.new_page(width=400,height=400)
+            p.insert_text((50,60),'MLP Head',fontsize=8)  # inside figure
+            p.insert_text((25,120),'Figure 1: Model architecture overview.',fontsize=10)  # caption below figure
+            slots,retained=app.blocks_for_page(p,[{'kind':'figure','confidence':0.95,'bbox':[40,40,200,100]}])
+            text=' '.join(s['source'] for s in slots)
+            self.assertIn('Figure 1: Model architecture overview.',text)
+            self.assertNotIn('MLP Head',text)
+
     def test_formula_prose_and_vertical_labels_are_selectable(self):
         with pymupdf.open() as d:
             p=d.new_page(width=400,height=400)
