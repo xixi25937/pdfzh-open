@@ -255,5 +255,50 @@ Foo & 1.25 \\
         with self.assertRaises(ValueError):
             app.restore(s,'@@P0@@甲@@P2@@乙@@P1@@@@P3@@')
 
+    def test_truncation_check_flags_missing_clauses_but_not_structural_text(self):
+        # The real miss: 17 words, translation only kept "in Sec. 7".
+        s=app.extract_segments('Extend the real-world experimental results with three bimanual manipulation tasks including Egg Beater, Mat Unrolling, and Shirt Folding in Sec. 7.')[0]
+        with self.assertRaisesRegex(ValueError,'疑似漏译'):
+            app.validate_translation(s,'在第 7。')
+        # Normal translations pass.
+        good='将真实世界的实验结果扩展到三个双臂操作任务，包括打蛋器、卷垫子和折衬衫，见第 7 节。'
+        app.validate_translation(s,good)
+        # Code and name lists are structurally excluded.
+        code=native.segment('def dpo_loss(pi_logps, ref_logps, yw_idxs, yl_idxs, beta):')
+        app.validate_translation(code,code['text'])
+        names=native.segment('Cheng Chi, Zhenjia Xu, Siyuan Song, Eric Cousineau, Yilun Du, Benjamin Burchfiel, Russ Tedrake and Shuran Song.')
+        app.validate_translation(names,names['text'])
+        # A deliberately unchanged translation (model pass-through) is not truncation.
+        app.validate_translation(s,s['text'])
+        # Short segments below the word threshold are never flagged.
+        short=app.extract_segments('Safety instructions.')[0]
+        app.validate_translation(short,'安全说明。')
+
+    def test_truncated_first_response_retries_with_feedback(self):
+        s=app.extract_segments('Extend the real-world experimental results with three bimanual manipulation tasks including Egg Beater, Mat Unrolling, and Shirt Folding in Sec. 7.')[0]
+        key=app.digest(s['text']);calls=[]
+        def api(batch,cfg):
+            calls.append(cfg.get('retry_feedback',{}))
+            if len(calls)==1:
+                return {key:'在第 7。'},{'total_tokens':5}
+            return {key:'将真实世界的实验结果扩展到三个双臂操作任务，包括打蛋器、卷垫子和折衬衫，见第 7 节。'},{'total_tokens':10}
+        with tempfile.TemporaryDirectory() as directory,patch.object(app,'api_batch',side_effect=api),patch.object(app.time,'sleep'):
+            cache,usage=app.build_translation([(Path('x'),'',[s])],Path(directory)/'cache.json',None,{'key':'fake','model':'test'},False)
+            self.assertIn('打蛋器',cache[key])
+            self.assertEqual(len(calls),2)
+            self.assertIn('疑似漏译',str(calls[1][key]))
+
+    def test_bad_cached_translation_is_dropped_and_retranslated(self):
+        s=app.extract_segments('Extend the real-world experimental results with three bimanual manipulation tasks including Egg Beater, Mat Unrolling, and Shirt Folding in Sec. 7.')[0]
+        key=app.digest(s['text'])
+        def api(batch,cfg):
+            return {key:'将真实世界的实验结果扩展到三个双臂操作任务，包括打蛋器、卷垫子和折衬衫，见第 7 节。'},{'total_tokens':10}
+        with tempfile.TemporaryDirectory() as directory,patch.object(app,'api_batch',side_effect=api):
+            root=Path(directory)
+            app.write_json(root/'cache.json',{key:'在第 7。'})
+            cache,usage=app.build_translation([(Path('x'),'',[s])],root/'cache.json',None,{'key':'fake','model':'test'},False)
+            self.assertIn('打蛋器',cache[key])
+            self.assertEqual(usage['total_tokens'],10)
+
 
 if __name__=='__main__': unittest.main()

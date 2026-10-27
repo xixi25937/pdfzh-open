@@ -191,6 +191,35 @@ def extract_segments(source: str) -> list[dict]:
     return segments
 
 
+def truncation_suspect(source: str, value: str):
+    """(words, hanzi) when a translation looks truncated, else None.
+
+    A full English sentence compresses to roughly half its word count in
+    hanzi; below a quarter, clauses were almost certainly dropped. Name
+    lists, references, code, URLs and filler glyphs are excluded by
+    structure, not keyword lists. An unchanged visible text is the model's
+    deliberate pass-through (handled as identical_translation downstream)
+    and the local preflight roundtrip, never a truncation.
+    """
+    plain = TOKEN.sub(' ', source)
+    words = re.findall(r'[a-z]{3,}', plain)
+    if len(words) < 8:
+        return None
+    hanzi = len(re.findall(r'[一-鿿]', value))
+    if hanzi >= 0.25 * len(words):
+        return None
+    if ''.join(TOKEN.sub('', value).split()) == ''.join(TOKEN.sub('', source).split()):
+        return None
+    alpha = re.findall(r'[A-Za-z]+', plain)
+    if alpha and sum(1 for w in alpha if w[0].isupper() or len(w) <= 2) > 0.45 * len(alpha):
+        return None
+    if re.search(r'\w[._]\w|\w\(', plain):
+        return None
+    if re.fullmatch(r'(x\s*)+', plain.strip(), re.I):
+        return None
+    return len(words), hanzi
+
+
 def validate_translation(segment: dict, value: str) -> None:
     if not value.strip():
         raise ValueError('Empty translation')
@@ -232,6 +261,9 @@ def validate_translation(segment: dict, value: str) -> None:
     plain = TOKEN.sub('', value)
     if any(c in plain for c in '\\{}$&%#_^'):
         raise ValueError('Translation contains unescaped TeX syntax')
+    suspect = truncation_suspect(segment['text'], value)
+    if suspect:
+        raise ValueError(f'译文疑似漏译：译文只有 {suspect[1]} 个汉字，原文有 {suspect[0]} 个英文词；请翻译全部内容，不要省略任何从句')
 
 
 def restore(segment, value):
@@ -394,9 +426,14 @@ def build_translation(files, cache_path, tracking, config, offline, check=None):
                 except ValueError: pass
     if recovered:print(f'[缓存] 从已保存回复恢复 {recovered} 个片段，未调用翻译接口。',flush=True)
     imported=0
+    invalidated=0
     for k,s in segments.items():
         if k in cache:
-            validate_translation(s,cache[k])
+            try:
+                validate_translation(s,cache[k])
+            except ValueError:
+                del cache[k]
+                invalidated+=1
             continue
         if s.get('style_events'):
             from pdfzh_styles import request_phrases
@@ -412,6 +449,8 @@ def build_translation(files, cache_path, tracking, config, offline, check=None):
             except ValueError:
                 pass
     pending=[(k,s) for k,s in segments.items() if k not in cache]
+    if invalidated:
+        print(f'[缓存] {invalidated} 个片段译文未通过校验，已剔除并重新翻译',flush=True)
     print(f'[翻译] {len(segments)} 个片段，复用缓存 {len(segments)-len(pending)}（旧缓存 {imported}），待翻译 {len(pending)}',flush=True)
     cache_path.parent.mkdir(parents=True,exist_ok=True)
     write_json(cache_path,cache)
