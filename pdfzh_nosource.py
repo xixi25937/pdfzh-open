@@ -777,6 +777,15 @@ def math_islands(blocks):
             # "2" in another PDF line) must stay a formula, not prose digits.
             for i,s in enumerate(spans):
                 if kinds[i]=='weak' and s['size']<prose_size*.85 and re.fullmatch(r'\d+',s['text'].strip()):kinds[i]='strong'
+            # A raised script-size marker opening a line in a text font ("1" before
+            # "The Chinese University") would fuse with the next word ("1The") and
+            # be drawn as a full-size digit; it is an island. Markers inside a word
+            # ("I^2C") already protect as one token and are left alone.
+            # Mid-line markers ("Ruan^1,2") stay out: they protect the whole name
+            # as one token, whereas a bare name gets transliterated by the model.
+            if len(spans)>1 and not kinds[0] and spans[0]['size']<prose_size*.85 and re.fullmatch(r'[\d,*†‡§¶∗]+',spans[0]['text']) \
+                    and not kinds[1] and spans[1]['text'].strip() and spans[1]['origin'][1]-spans[0]['origin'][1]>=prose_size*.2:
+                kinds[0]='strong'
             # A circled number "①" is a text digit overprinted by a large math
             # circle; the digit sits inside the circle's box, so the island
             # clip cannot erase it. Both are one island.

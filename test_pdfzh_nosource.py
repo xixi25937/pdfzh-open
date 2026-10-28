@@ -121,6 +121,26 @@ class NativeTests(unittest.TestCase):
         text=''.join(s['text'] for s in blocks[0]['lines'][0]['spans'])
         self.assertNotIn('1',text)
 
+    def test_leading_raised_marker_is_an_island_not_fused_with_next_word(self):
+        # EKT-Router: affiliation "1" (6pt, raised) + "The Chinese University"
+        # became the protected token "1The" and the translation kept "The".
+        def sp(t,size,x0,x1,y0):
+            return {'text':t,'font':'NimbusRomNo9L-Regu','size':size,'flags':4,'color':0,'bbox':(x0,y0,x1,y0+9),'origin':(x0,y0+7+(0 if size<7 else 1.5))}
+        def build(first_size):
+            return [{'type':0,'lines':[{'bbox':(208,143,350,154),'dir':(1,0),'spans':[
+                sp('1',first_size,208.4,211.3,143.5),sp('The Chinese University of Hong Kong',9,211.8,350.4,145)]}]}]
+        blocks=build(6)
+        islands=app.math_islands(blocks)
+        self.assertEqual(len(islands),1)
+        text=''.join(s['text'] for s in blocks[0]['lines'][0]['spans'])
+        self.assertEqual(text,chr(app.ISLAND_BASE)+'The Chinese University of Hong Kong')
+        seg=app.segment(text)
+        self.assertNotIn('1The',seg['protected'])
+        self.assertIn('The Chinese',seg['original'])
+        # A same-size leading digit (list number) is not a marker.
+        plain=build(9)
+        self.assertEqual(app.math_islands(plain),[])
+
     def test_tall_arrow_box_is_clamped_to_its_ink(self):
         # Adam's "←" (CMSY10 9.7pt) reports an 18pt box, 1.9x its size, and
         # swallowed the next algorithm row.
