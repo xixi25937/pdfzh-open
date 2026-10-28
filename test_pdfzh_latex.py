@@ -167,6 +167,23 @@ class LatexTests(unittest.TestCase):
             self.assertEqual(usage['total_tokens'],14)
             self.assertEqual(mocked.call_count,3)
 
+    def test_looping_reply_is_capped_and_not_retried(self):
+        # DPO: a degenerate "when when when..." segment hit max_tokens 6000
+        # on every one of three attempts (18000 completion tokens per run).
+        from io import BytesIO
+        s=app.extract_segments('girl '+'when '*120)[0];key=app.digest(s['text']);sent=[]
+        def urlopen(req,timeout):
+            sent.append(json.loads(req.data)['max_tokens'])
+            return BytesIO(json.dumps({'choices':[{'message':{'content':'{"'+key+'": "女孩 当 当'},'finish_reason':'length'}],
+                                       'usage':{'completion_tokens':sent[-1]}}).encode())
+        with tempfile.TemporaryDirectory() as directory,patch.object(app.urllib.request,'urlopen',side_effect=urlopen):
+            root=Path(directory)
+            with self.assertRaises(app.TranslationIncompleteError):
+                app.build_translation([(Path('x'),'',[s])],root/'cache.json',None,{'key':'fake','model':'test','url':'https://example.invalid'},False)
+            self.assertEqual(len(sent),1)
+            self.assertLessEqual(sent[0],512+2*len(s['text'])+200)
+            self.assertEqual([e['id'] for e in json.loads((root/'translation-errors.json').read_text(encoding='utf8'))],[key])
+
     def test_batch_exception_records_every_missing_segment(self):
         segments=app.extract_segments('First paragraph.\n\nSecond paragraph.')
         with tempfile.TemporaryDirectory() as directory,patch.object(app,'api_batch',side_effect=TimeoutError),patch.object(app.time,'sleep'):

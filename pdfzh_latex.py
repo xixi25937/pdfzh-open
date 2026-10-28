@@ -350,6 +350,16 @@ def normalize_translation(segment,value):
     return value
 
 
+LENGTH_LIMIT='翻译回复超出长度限制'
+
+
+def reply_budget(inputs):
+    """A Chinese reply needs well under 1 token per English input character;
+    2x plus JSON overhead stops a looping reply (DPO: "when when when..."
+    ran to 6000 tokens three times) without cutting a real translation."""
+    return min(6000,512+2*len(json.dumps(inputs,ensure_ascii=False)))
+
+
 def api_batch(batch, config):
     inputs={}
     for k,s in batch:
@@ -360,7 +370,7 @@ def api_batch(batch, config):
         inputs[k]={'phrases':phrases,'context_order':list(phrases)}
     payload = {
         'model': config['model'], 'temperature': 0,
-        'response_format': {'type': 'json_object'}, 'max_tokens': 6000,
+        'response_format': {'type': 'json_object'}, 'max_tokens': reply_budget(inputs),
         'messages': [
             {'role':'system','content': 'Translate English academic prose into Simplified Chinese. '
              'Return a JSON object mapping every supplied id to its translation string. '
@@ -395,7 +405,7 @@ def api_batch(batch, config):
         data=json.load(response)
     choice=data['choices'][0];raw=choice['message'].get('content');usage=data.get('usage',{})
     try:
-        if choice.get('finish_reason')=='length':raise ValueError('翻译回复超出长度限制')
+        if choice.get('finish_reason')=='length':raise ValueError(LENGTH_LIMIT)
         values=decode_response(raw)
     except (ValueError,TypeError) as exc:
         raise TranslationResponseError(str(exc),raw,usage) from exc
@@ -466,7 +476,7 @@ def build_translation(files, cache_path, tracking, config, offline, check=None):
     if batch: batches.append(batch)
     usage=collections.Counter(); failed=[]
     def translate(batch):
-        accepted={}; total=collections.Counter(); errors=[]
+        accepted={}; total=collections.Counter(); errors=[]; given_up=[]
         feedback={k:previous_errors[k] for k,s in batch if k in previous_errors}
         def request(items):
             try:
@@ -496,7 +506,12 @@ def build_translation(files, cache_path, tracking, config, offline, check=None):
                         feedback[k]=str(e)
                         remaining.append((k,s)); errors.append({'id':k,'reason':str(e),'response':values.get(k),
                                                                **response_errors.get(k,{})})
-                batch=remaining
+                # A lone segment whose reply hit the length budget is looping;
+                # retrying only burns tokens. It keeps its original text.
+                looping={k for k,s in remaining if response_errors.get(k,{}).get('reason')==LENGTH_LIMIT}
+                given_up+=[e for e in errors if e['id'] in looping]
+                batch=[(k,s) for k,s in remaining if k not in looping]
+                errors=[e for e in errors if e['id'] not in looping]
                 if not batch: break
                 if attempt<2:print(f'[翻译] {len(batch)} 个片段需重试：'+errors[0]['reason'][:200],flush=True)
             except Exception as e:
@@ -509,7 +524,7 @@ def build_translation(files, cache_path, tracking, config, offline, check=None):
                     reason=f'无法连接翻译服务（{getattr(e,"reason",e)}）'[:200]
                 errors=[{'id':k,'reason':reason} for k,s in batch]
                 time.sleep(1+attempt)
-        return accepted,dict(total),errors
+        return accepted,dict(total),given_up+errors
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
         jobs={pool.submit(translate,b):b for b in batches}
         done=0
