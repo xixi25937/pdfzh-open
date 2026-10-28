@@ -274,8 +274,14 @@ def validate_translation(segment: dict, value: str) -> None:
     if not value.strip():
         raise ValueError('Empty translation')
     expected = TOKEN.findall(segment['text'])
-    if collections.Counter(TOKEN.findall(value)) != collections.Counter(expected):
-        counts=collections.Counter(TOKEN.findall(value));wanted=collections.Counter(expected)
+    counts=collections.Counter(TOKEN.findall(value));wanted=collections.Counter(expected)
+    # A model may repeat a letters-only acronym (FMU, API) where Chinese word
+    # order mentions it twice; repetition cannot change a number or a style.
+    extra=counts-wanted
+    acronym=lambda t:(t in wanted and str(int(t[3:-2])) not in segment.get('style_events',{}) and
+                      re.fullmatch(r'[A-Za-z]+',segment['protected'][int(t[3:-2])]) and
+                      sum(c.isupper() for c in segment['protected'][int(t[3:-2])])>=2)
+    if wanted-counts or not all(acronym(t) for t in extra):
         raise ValueError('Protected token missing, duplicated or modified; missing: '+
                          ', '.join((wanted-counts).elements())+'; extra: '+', '.join((counts-wanted).elements()))
     # Atomic formulas can move with Chinese word order; formatting braces must

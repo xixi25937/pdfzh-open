@@ -316,6 +316,16 @@ Foo & 1.25 \\
                              ('Proceedings of the IEEE International Conference on Robotics and Automation, 2024.','@@P0@@ 国际机器人与自动化会议论文集，@@P1@@。')]:
             app.validate_translation(native.segment(source),value)
 
+    def test_repeated_letter_acronym_token_is_allowed(self):
+        # 36407 p4: the model wrote @@P0@@ (FMU) twice; three rounds failed.
+        s=native.segment('The joint is a continuous output of the FMU into which the model is exported. It reads the FMI 2.0 interface.')
+        value='该关节是 @@P0@@ 的连续输出，模型被导出到该 @@P0@@ 中。它读取 @@P1@@ @@P2@@ 接口。'
+        self.assertEqual(native.translated_text(s,value),'该关节是 FMU 的连续输出，模型被导出到该 FMU 中。它读取 FMI 2.0 接口。')
+        with self.assertRaisesRegex(ValueError,'missing'):
+            app.validate_translation(s,'该关节是 @@P0@@ 的连续输出，模型被导出到该 @@P0@@ 中。它读取 @@P2@@ 接口。')
+        with self.assertRaisesRegex(ValueError,'extra'):
+            app.validate_translation(s,'该关节是 @@P0@@ 的连续输出。它读取 @@P1@@ @@P2@@ 接口，版本 @@P2@@。')
+
     def test_truncated_first_response_retries_with_feedback(self):
         s=app.extract_segments('Extend the real-world experimental results with three bimanual manipulation tasks including Egg Beater, Mat Unrolling, and Shirt Folding in Sec. 7.')[0]
         key=app.digest(s['text']);calls=[]
