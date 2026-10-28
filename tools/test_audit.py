@@ -41,6 +41,10 @@ def make_pdfs(src_path, out_path):
         if i == 1:
             op.insert_text((W + 20, 200), '重叠文字甲', fontsize=10, fontname='china-s')
             op.insert_text((W + 22, 201), '重叠文字乙', fontsize=10, fontname='china-s')
+            # whole-line overlap: two distinct lines sharing >30% height on
+            # the right half only (merged pseudo-code rows reflowed by TeX).
+            op.insert_text((W + 20, 250), '第一行算法步骤内容。', fontsize=10, fontname='china-s')
+            op.insert_text((W + 20, 252), '第二行算法步骤内容。', fontsize=10, fontname='china-s')
     src.save(src_path)
     out.save(out_path)
 
@@ -82,6 +86,11 @@ class AuditTests(unittest.TestCase):
     def test_overlap_caught(self):
         hits = [f for f in self.findings if f['page'] == 2 and f['kind'] == 'overlap']
         self.assertTrue(hits, 'overlapping words not caught')
+
+    def test_line_stacked_on_line_caught(self):
+        hits = [f for f in self.findings if f['page'] == 2 and f['kind'] == 'overlap'
+                and 'stacked' in (f['detail'] or '')]
+        self.assertTrue(hits, 'whole-line overlap not caught')
 
 
 if __name__ == '__main__':

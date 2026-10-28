@@ -421,6 +421,52 @@ class NativeTests(unittest.TestCase):
         # Glyphs that really moved are still reported.
         self.assertTrue(app.retained_position_errors(source,page([(*box,'RoIAlignRoIAlign')],dy=3),[]))
 
+    def test_pseudo_code_rows_stay_separate_slots(self):
+        # Adam p2: each Require/step row of Algorithm 1 must keep its own line
+        # and box; merging them into one paragraph reflows rows onto each other.
+        line=lambda y,text,x1=260:{'bbox':(110,y,x1,y+12),'dir':(1,0),'spans':[
+            {'text':text,'size':9.7,'bbox':(110,y,x1,y+12),'flags':0,'color':0,'font':'NimbusRomNo9L-Regu'}]}
+        rows=[line(0,'Require: α: Stepsize'),
+              line(12,'m0 ← 0 (Initialize 1st moment vector)'),
+              line(24,'while θt not converged do'),
+              line(36,'t ← t + 1'),
+              line(48,'end while',180),
+              line(60,'return θt (Resulting parameters)')]
+        self.assertEqual(len(app.paragraph_parts(rows)),6)
+        self.assertTrue(app.pseudo_code_line(rows[1]))
+        self.assertFalse(app.pseudo_code_line({'bbox':(10,0,390,10),'dir':(1,0),'spans':[
+            {'text':'A normal sentence that happens to mention (something) at the end.','size':10,'bbox':(10,0,390,10)}]}))
+        # End-to-end through blocks_for_page: each row of an algorithm box
+        # becomes its own slot (not merged into a paragraph).
+        with pymupdf.open() as d:
+            p=d.new_page(width=500,height=300)
+            # Adam's Require block has no arrows; two Require rows mark it.
+            p.insert_text((110,80),'Require: a: Stepsize, the base step size used every iteration',fontsize=9)
+            p.insert_text((110,93),'Require: f: Stochastic objective function with parameters',fontsize=9)
+            p.insert_text((110,106),'Require: t: Initial parameter vector of the optimisation',fontsize=9)
+            p.insert_text((110,119),'while not converged do iterate the whole procedure again',fontsize=9)
+            slots,_=app.blocks_for_page(p,[])
+            sources=[s['source'] for s in slots]
+            self.assertEqual(len(sources),4)
+        # Ordinary prose with parentheses and "for"/"if" openers stays merged.
+        with pymupdf.open() as d:
+            p=d.new_page(width=500,height=300)
+            p.insert_text((110,80),'We train the network with Adam (see Section 2) and',fontsize=9)
+            p.insert_text((110,93),'for every task we report the mean (over five seeds)',fontsize=9)
+            p.insert_text((110,106),'if the variance is large we also show the error (Table 3)',fontsize=9)
+            slots,_=app.blocks_for_page(p,[])
+            self.assertEqual(len(slots),1)
+        with pymupdf.open() as d:
+            p=d.new_page(width=500,height=300)
+            p.insert_text((110,80),'Require: a: Stepsize, the base step size used every iteration',fontsize=9)
+            p.insert_text((110,93),'Require: f: Stochastic objective function with parameters',fontsize=9)
+            p.insert_text((110,106),'Require: t: Initial parameter vector of the optimisation',fontsize=9)
+            p.insert_text((110,119),'Stepsize schedule follows the original paper defaults',fontsize=9)
+            slots,_=app.blocks_for_page(p,[])
+            sources=[s['source'] for s in slots]
+            self.assertGreaterEqual(len(sources),3)
+            self.assertTrue(any('base step size' in s and 'Stochastic' not in s for s in sources))
+
     def test_dingbat_bullets_start_new_items(self):
         line=lambda y,text,dingbat:{'bbox':(10,y,200,y+10),'spans':[
             {'text':'\U000f0000','size':10,'bbox':(10,y,15,y+10),'members':[[10,y,15,y+10]],'dingbat':dingbat},

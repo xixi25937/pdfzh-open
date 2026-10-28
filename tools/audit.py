@@ -195,6 +195,28 @@ def audit_page(page, page_no, half, src_page, zones, src_words):
         for a, b in rpairs[:extra]:
             findings.append(find(page_no, 'overlap', pymupdf.Rect(a[:4]) | pymupdf.Rect(b[:4]),
                                  f'{a[4]} / {b[4]}', 'words overlap >30% (not present in source)'))
+    # whole-line overlap: two lines drawn on top of each other on the right
+    # but not on the left (e.g. merged pseudo-code rows reflowed by TeX).
+    def stacked(ls):
+        pairs = []
+        for a, b in zip(ls, ls[1:]):
+            ra, rb = a[0], b[0]
+            h = min(ra.y1 - ra.y0, rb.y1 - rb.y0)
+            if h > 0 and min(ra.y1, rb.y1) - max(ra.y0, rb.y0) > .3 * h:
+                pairs.append((a, b))
+        return pairs
+    src_lines = []
+    for b in src_page.get_text('dict')['blocks']:
+        if b['type'] != 0: continue
+        for ln in b['lines']:
+            spans = [s for s in ln['spans'] if s['text'].strip()]
+            if spans:
+                src_lines.append((pymupdf.Rect(ln['bbox']), ''.join(s['text'] for s in spans), 0))
+    extra2 = len(stacked(lines)) - len(stacked(src_lines))
+    if extra2 > 0:
+        for a, b in stacked(lines)[:extra2]:
+            findings.append(find(page_no, 'overlap', pymupdf.Rect(a[0]) | pymupdf.Rect(b[0]),
+                                 f'{a[1][:30]} / {b[1][:30]}', 'line stacked on line >30% height (not in source)'))
     return findings
 
 

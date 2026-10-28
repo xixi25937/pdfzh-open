@@ -580,12 +580,14 @@ def continuation_runs(lines):
     (or the new line starts in lowercase). Bullets and "X:" labels start runs.
     """
     def size(l):return max((s['size'] for s in l['spans']),default=0)
+    pseudo=pseudo_block(lines)
     runs=[]
     for line in lines:
         text=body_text([line]);r=pymupdf.Rect(line['bbox'])
         if runs:
             prev=runs[-1][-1];pr=pymupdf.Rect(prev['bbox']);pt=body_text([prev]);fs=max(size(prev),1)
-            starts_item=starts_bullet(line) or re.match(r'^(?:[•▪◦\-–*]|\(?[A-Za-z0-9]{1,3}[.)]\s|[A-Z][A-Za-z]{0,10}:)',text)
+            starts_item=(starts_bullet(line) or (pseudo and pseudo_code_line(line)) or
+                re.match(r'^(?:[•▪◦\-–*]|\(?[A-Za-z0-9]{1,3}[.)]\s|[A-Z][A-Za-z]{0,10}:)',text))
             # Lines of a wrapped sentence overlap slightly (y0 < prev.y1)
             # in tight figure callouts; allow up to half a line of overlap.
             if (not starts_item and abs(r.x0-pr.x0)<=fs and -fs*.5<=r.y0-pr.y1<=fs*.8
@@ -606,6 +608,7 @@ def paragraph_parts(lines,limit=1200):
     """
     def first(l):return next((s for s in l['spans'] if s['text'].strip()),None)
     left=min(l['bbox'][0] for l in lines)
+    pseudo=pseudo_block(lines)
     parts=[[lines[0]]]
     for prev,line in zip(lines,lines[1:]):
         f=first(line);pt=body_text([prev]);fs=max((s['size'] for s in line['spans']),default=10)
@@ -621,9 +624,36 @@ def paragraph_parts(lines,limit=1200):
         # A heading row ("3 Description") in a larger size than the body.
         ps=max((s['size'] for s in prev['spans']),default=fs)
         resized=new_row and abs(ps-fs)>min(ps,fs)*.15
-        if resized or (new_row and starts_bullet(line)) or (new_row and ended and (bold_head or indent or long_cut)):parts.append([line])
+        if resized or (new_row and starts_bullet(line)) or (new_row and pseudo and pseudo_code_line(line)) or (new_row and ended and (bold_head or indent or long_cut)):parts.append([line])
         else:parts[-1].append(line)
     return parts
+
+
+def pseudo_block(lines):
+    """An algorithm box keeps one part per row. Only a block with assignment
+    arrows or several "Require:" rows counts: parentheses and "for"/"if"
+    openers are common in prose and tables, where splitting rows would
+    scatter ordinary paragraphs."""
+    texts=[body_text([l]) for l in lines]
+    if sum(pseudo_code_line(l) for l in lines)<3:return False
+    # Math islands replace "m0 ← 0" by a private-use glyph, so the arrow is
+    # often gone by now; rows that open with an island and end in a
+    # parenthesised comment are the same step pattern.
+    steps=sum(bool((re.match(r'\s*[\U000f0000-\U000fffff]',t) and re.search(r'\)\s*$',t)) or
+                   re.match(r'\s*(?:end\s+(?:while|for|if)|return)\b',t)) for t in texts)
+    return (any('←' in t for t in texts) or steps>=3 or
+            sum(bool(re.match(r'\s*(?:Require|Ensure|Input|Output):',t)) for t in texts)>=2)
+
+
+def pseudo_code_line(line):
+    """A pseudo-code step: assignment arrow, a control word opening the line,
+    or a step ending in a parenthesised comment. Merging such rows into one
+    paragraph makes TeX reflow them and neighbouring steps overlap."""
+    text=body_text([line]).strip()
+    if not text:return False
+    return bool(re.search(r'[←→]',text) or
+        re.match(r'^(?:Require|while|end|for|if|return)\b',text,re.I) or
+        re.search(r'\([^)]+\)\s*$',text))
 
 
 def visual_rows(lines):
