@@ -867,6 +867,36 @@ class NativeTests(unittest.TestCase):
             self.assertTrue(q['automated_checks_passed'])
             self.assertEqual([r['text'] for r in q['retained_regions']],['Matrix value 31 holds here.'])
 
+    @unittest.skipUnless(shutil.which('xelatex') and shutil.which('latexmk'),'requires local TeX Live')
+    def test_number_lost_inside_one_slot_restores_only_that_slot(self):
+        # 36599 p8: one formula island lost its "3D" subscripts; with only
+        # missing numbers, every slot holding a "3" was restored (7 boxes, 91.8%).
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);src=root/'one.pdf';out=root/'out';out.mkdir()
+            with pymupdf.open() as d:
+                p=d.new_page(width=360,height=300)
+                p.insert_text((25,60),'Matrix value 3 holds here.');p.insert_text((25,200),'Ground pin is 3 low.')
+                d.save(src)
+            latex.write_json(out/'layout.json',{'sha256':hashlib.sha256(src.read_bytes()).hexdigest(),'pages':[{'regions':[]}]})
+            plan=app.prepare(src,out)
+            cache={latex.digest(s['segment']['text']):('矩阵' if 'Matrix' in s['source'] else '接地')+' '.join(re.findall(r'@@\w+@@|\d+',s['segment']['text']))
+                   for p in plan['pages'] for s in p['slots']}
+            real=latex.compile_project
+            def lose(project,main):
+                pdf,w,c=real(project,main)
+                with pymupdf.open(pdf) as d:
+                    pg=d[0];hit='矩阵' in pg.get_text()
+                    if hit:
+                        for r in pg.search_for('3'):
+                            if r.y1<120:pg.add_redact_annot(r)
+                        pg.apply_redactions();d.save(pdf.with_suffix('.tmp.pdf'))
+                if hit:os.replace(pdf.with_suffix('.tmp.pdf'),pdf)
+                return pdf,w,c
+            with patch.object(latex,'compile_project',side_effect=lose):
+                q=app.compile_overlay(src,out,plan,cache)
+            self.assertTrue(q['automated_checks_passed'])
+            self.assertEqual([r['text'] for r in q['retained_regions']],['Matrix value 3 holds here.'])
+
     def test_offline_uses_cached_plain_translation_of_styled_segment(self):
         # Regression rc=3: the styled key is missing but its plain_segment is
         # cached; offline must swap to it, not stop on "cache incomplete".

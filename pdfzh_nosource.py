@@ -1322,6 +1322,17 @@ def column_translations(slot):
     return []
 
 
+def lost_number_slots(pdf,rendered,page,boxes,tokens):
+    """Slot boxes whose rendered words (by centre) hold fewer of `tokens` than the source words there."""
+    def count(doc,box):
+        found=Counter()
+        for w in doc[page-1].get_text('words'):
+            if box.contains(pymupdf.Point((w[0]+w[2])/2,(w[1]+w[3])/2)):found.update(t for t in NUMBERS.findall(w[4]) if t in tokens)
+        return found
+    with pymupdf.open(pdf) as source,pymupdf.open(rendered) as result:
+        return [b for b in boxes if count(source,pymupdf.Rect(b))-count(result,pymupdf.Rect(b))]
+
+
 def check_complete(pdf):
     """An interrupted download lacks the trailing %%EOF; only the tail is checked
     because valid files may carry whitespace or junk bytes after it."""
@@ -1605,6 +1616,9 @@ def compile_overlay(pdf,out,plan,cache,*,allow_fallback=True,rounds=0):
             # surplus token is specific: blame only its slots first.
             surplus={t for e in extra if e['page']==p for t in e['extra']}
             first=[s['bbox'] for s in valid if s['page']==p and set(NUMBERS.findall(s['source']+' '+s['translation']))&surplus]
+            # Only-missing pages: a slot whose own area lost a number (36599 p8:
+            # the "3D" subscripts of one formula island) beats "every slot with a 3".
+            if not first:first=lost_number_slots(pdf,rendered,p,[s['bbox'] for s in valid if s['page']==p],bad.get(p,set()))
             if first and rounds==0:blamed=first
             else:
                 # A slot box reaching into a table row erases numbers its text
