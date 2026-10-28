@@ -780,5 +780,15 @@ class NativeTests(unittest.TestCase):
             with pymupdf.open(q['output_files']['chinese']) as cn:
                 self.assertIn('供电电压',cn[0].get_text());self.assertIn('Supply voltage',cn[1].get_text())
 
+    def test_long_metadata_string_is_blanked_for_xdvipdfmx(self):
+        # 36022: a figure's InfoDict /Subject is a 4 MB hex string; xdvipdfmx
+        # stops at 65535 bytes and the whole document failed (rc=5).
+        with pymupdf.open() as d:
+            d.new_page();x=d.get_new_xref()
+            d.update_object(x,'<</Title (fig.pdf)/Subject <'+'AB'*70000+'>>>')
+            self.assertEqual(app.drop_long_strings(d),1)
+            self.assertEqual(d.xref_get_key(x,'Subject')[1],'')
+            self.assertEqual(d.xref_get_key(x,'Title')[1],'fig.pdf')
+
 
 if __name__=='__main__':unittest.main()

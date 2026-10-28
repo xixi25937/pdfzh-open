@@ -129,6 +129,24 @@ def island_escape(s):
     return escape
 
 
+def drop_long_strings(doc,limit=60000):
+    """xdvipdfmx aborts the whole document on a PDF string over 65535 bytes
+    (a figure's PTEX.InfoDict /Subject holding a 4 MB drawio dump). Such
+    strings are only metadata: blank them before the PDF goes to TeX."""
+    dropped=0
+    for x in range(1,doc.xref_length()):
+        try:
+            if len(doc.xref_object(x,compressed=True))<=limit:continue
+            keys=doc.xref_get_keys(x)
+        except Exception:
+            continue
+        for k in keys:
+            kind,value=doc.xref_get_key(x,k)
+            if kind=='string' and len(value)>limit//2:
+                doc.xref_set_key(x,k,'()');dropped+=1
+    return dropped
+
+
 def write_islands(doc,plan,path):
     """One page per island: its member glyphs only, clipped from the source."""
     number=0
@@ -188,7 +206,9 @@ def write_islands(doc,plan,path):
                         target=out.new_page(width=clip.width,height=clip.height)
                         target.show_pdf_page(show-(clip.x0,clip.y0,clip.x0,clip.y0),tmp,0,clip=show)
                     number+=1;isl['page']=number
-        if number:out.save(path,garbage=4,deflate=True)
+        if number:
+            drop_long_strings(out)
+            out.save(path,garbage=4,deflate=True)
     return number
 
 
@@ -1436,6 +1456,7 @@ def compile_overlay(pdf,out,plan,cache,*,allow_fallback=True,rounds=0):
             if restored:
                 print(f'[排版] {len(position_errors)} 页擦除后保留文字移位，这些页恢复原文后重排',flush=True)
                 return compile_overlay(pdf,out,plan,cache,allow_fallback=allow_fallback,rounds=rounds)
+        drop_long_strings(doc)
         doc.save(background,garbage=4,deflate=True)
     if collisions:
         for pi,s in collisions:
