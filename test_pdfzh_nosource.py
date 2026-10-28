@@ -110,6 +110,21 @@ class NativeTests(unittest.TestCase):
         seg=app.segment(text)
         self.assertIn(chr(app.ISLAND_BASE),seg['protected'])
 
+    def test_symbol_bullet_in_own_line_joins_item_row(self):
+        # AP2112 p1: Symbol \uf0b7 bullet is its own PDF line, 12pt left of the
+        # item text; it stayed an orphan formula and the whole list was kept
+        # English as unmapped_glyph.
+        def sp(t,font,x0,x1):
+            return {'text':t,'font':font,'size':8,'flags':0,'color':0,'bbox':(x0,342,x1,351.5),'origin':(x0,349.5)}
+        def build(glyph):
+            return [{'type':0,'lines':[{'bbox':(55.5,342,63.3,351.5),'dir':(1,0),'spans':[sp(glyph,'Symbol',55.5,61.2),sp(' ','Arial',61.1,63.3)]}]},
+                    {'type':0,'lines':[{'bbox':(73.3,342,191,351.5),'dir':(1,0),'spans':[sp('Output Voltage Accuracy','Arial',73.3,191)]}]}]
+        blocks=build('\uf0b7\uf020');islands=app.math_islands(blocks)
+        self.assertEqual(len(islands),1)
+        self.assertTrue(app.starts_bullet(blocks[0]['lines'][0]))
+        # Another Symbol glyph at the same distance (a detached formula) stays out.
+        self.assertEqual(app.math_islands(build('\uf057')),[])
+
     def test_circled_number_digit_joins_its_circle_island(self):
         # Diffusion Policy: "1" (NimbusSanL) overprinted by a CMSY9 circle.
         def sp(t,font,size,x0,y0,x1,y1):

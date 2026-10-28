@@ -873,6 +873,10 @@ def math_islands(blocks):
         # Up to a math space around a binary operator ("x/m + y/n" in 7pt
         # script); any prose word in between is wider than this.
         return overlap>h*.5 and max(ra.x0,rb.x0)-min(ra.x1,rb.x1)<=min(a['size'],b['size'])*.9
+    def bullet(island):
+        glyphs=[m for m in island['members'] if m['text'].strip(' \uf020')]
+        return bool(glyphs) and all(re.match(r'Wingdings|ZapfDingbats',m['font'],re.I) or
+                                    (re.match(r'Symbol',m['font'],re.I) and m['text'].strip(' \uf020')=='\uf0b7') for m in glyphs)
     alive=list(candidates)
     row_lines=[l for b in blocks if b['type']==0 for l in b['lines'] if any(s['text'].strip() for s in l['spans'])]
     changed=True
@@ -935,11 +939,14 @@ def math_islands(blocks):
     # inside a prose row ("of size x/2n rather than"); the row rejoins it.
     def prose_row(a):
         cy=(a['bbox'].y0+a['bbox'].y1)/2
+        # A list bullet in its own PDF line sits a tab stop (~1.5 em) before its
+        # item text (AP2112: Symbol \uf0b7 12pt left of "Output Voltage").
+        reach=a['size']*(3 if bullet(a) else 1)
         # A row that has islands of its own ("segment, u_f = clip") is still
         # prose; only rows made of math alone are not.
         return next((l for l in row_lines if l is not a['line'] and not ('_items' in l and all('members' in x or not re.search(r'\w',x['text']) for x in l['_items'])) and re.search(r'[A-Za-z]{3,}',''.join(s['text'] for s in l['spans']))
                    and l['bbox'][1]<=cy<=l['bbox'][3]
-                   and (0<=a['bbox'].x0-l['bbox'][2]<=a['size'] or 0<=l['bbox'][0]-a['bbox'].x1<=a['size'])),None)
+                   and (0<=a['bbox'].x0-l['bbox'][2]<=a['size'] or 0<=l['bbox'][0]-a['bbox'].x1<=reach)),None)
     for a in alive:
         row=prose_row(a) if orphan(a) and a['strong'] else None
         # Scale relative to the row's prose, not the fraction's script size.
@@ -967,7 +974,7 @@ def math_islands(blocks):
                 if lead:spans.append({**neighbour,'text':lead,'bbox':(x['bbox'].x0,x['bbox'].y0,x['bbox'].x0,x['bbox'].y1)})
                 spans.append({**neighbour,'text':chr(ISLAND_BASE+index),'bbox':tuple(x['bbox']),'size':x['size'],
                               'members':[list(m['bbox']) for m in x['members']],
-                              'dingbat':all(re.match(r'Wingdings|ZapfDingbats',m['font'],re.I) for m in x['members'] if m['text'].strip())})
+                              'dingbat':bullet(x)})
                 if trail:spans.append({**neighbour,'text':trail,'bbox':(x['bbox'].x1,x['bbox'].y0,x['bbox'].x1,x['bbox'].y1)})
                 result.append({'bbox':list(x['bbox']),'baseline':x['baseline'],'size':x['size'],
                                'members':[list(m['bbox']) for m in x['members']]})
