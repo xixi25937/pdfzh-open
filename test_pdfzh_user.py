@@ -32,7 +32,7 @@ class UserTests(unittest.TestCase):
 
     def test_offline_does_not_require_or_forward_key(self):
         with tempfile.TemporaryDirectory() as folder:
-            pdf=Path(folder)/'demo.pdf';pdf.write_bytes(b'fake')
+            pdf=Path(folder)/'demo.pdf';pdf.write_bytes(b'fake%%EOF')
             with patch.object(user,'api_key',side_effect=AssertionError('no key access')), \
                  patch.object(cli.subprocess,'run',return_value=subprocess.CompletedProcess([],2)) as run:
                 self.assertEqual(cli.main([str(pdf),'--offline','--no-open']),2)
@@ -42,7 +42,7 @@ class UserTests(unittest.TestCase):
 
     def test_success_records_friendly_output_and_does_not_open_when_disabled(self):
         with tempfile.TemporaryDirectory() as folder:
-            root=Path(folder);pdf=root/'demo.pdf';pdf.write_bytes(b'input');out=user.job_directory(pdf);out.mkdir(parents=True)
+            root=Path(folder);pdf=root/'demo.pdf';pdf.write_bytes(b'input%%EOF');out=user.job_directory(pdf);out.mkdir(parents=True)
             result=out/'dual.pdf';result.write_bytes(b'result')
             (out/'reflow-qa.json').write_text(json.dumps({'automated_checks_passed':True,'output_files':{'bilingual':str(result)}}))
             with patch.object(user,'api_key',return_value='not-a-real-key'),patch.object(user,'load_settings',return_value={}), \
@@ -56,7 +56,7 @@ class UserTests(unittest.TestCase):
 
     def test_default_mode_is_original_with_tex_and_reflow_without(self):
         with tempfile.TemporaryDirectory() as folder:
-            pdf=Path(folder)/'demo.pdf';pdf.write_bytes(b'fake');output=StringIO()
+            pdf=Path(folder)/'demo.pdf';pdf.write_bytes(b'fake%%EOF');output=StringIO()
             for tex,engine in ((True,'pdfzh_nosource.py'),(False,'pdfzh_reflow.py')):
                 with patch.object(cli.shutil,'which',return_value='tex' if tex else None), \
                      patch.object(cli.subprocess,'run',return_value=subprocess.CompletedProcess([],2)) as run, \
@@ -68,11 +68,18 @@ class UserTests(unittest.TestCase):
 
     def test_missing_translation_does_not_recommend_offline_as_a_fix(self):
         with tempfile.TemporaryDirectory() as folder:
-            pdf=Path(folder)/'demo.pdf';pdf.write_bytes(b'fake');output=StringIO()
+            pdf=Path(folder)/'demo.pdf';pdf.write_bytes(b'fake%%EOF');output=StringIO()
             with patch.object(cli.subprocess,'run',return_value=subprocess.CompletedProcess([],3)),redirect_stdout(output):
                 self.assertEqual(cli.main([str(pdf),'--offline','--no-open']),3)
             self.assertIn('--offline 不能补齐',output.getvalue())
             self.assertNotIn('零翻译费用重排',output.getvalue())
+
+    def test_truncated_download_stops_before_engine(self):
+        with tempfile.TemporaryDirectory() as folder:
+            pdf=Path(folder)/'demo.pdf';pdf.write_bytes(b'%PDF-1.7\n1 0 obj')
+            with patch.object(cli.subprocess,'run') as run:
+                with self.assertRaisesRegex(ValueError,'下载中断'):cli.main([str(pdf),'--offline','--no-open'])
+                run.assert_not_called()
 
     def test_release_whitelist_and_secret_scan(self):
         for forbidden in ['config.json','sitecustomize.py','pdfzh_next.py','output','reference']:

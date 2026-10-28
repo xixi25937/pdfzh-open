@@ -1322,6 +1322,14 @@ def column_translations(slot):
     return []
 
 
+def check_complete(pdf):
+    """An interrupted download lacks the trailing %%EOF; only the tail is checked
+    because valid files may carry whitespace or junk bytes after it."""
+    with open(pdf,'rb') as f:
+        f.seek(0,os.SEEK_END);f.seek(max(0,f.tell()-2048));tail=f.read()
+    if b'%%EOF' not in tail:raise ValueError('PDF 文件不完整（可能下载中断），请重新下载：'+str(pdf))
+
+
 def publish_copy(source,destination):
     """Atomic publication; an open Windows reader must not abort a good build."""
     with tempfile.TemporaryDirectory(prefix='.publish-',dir=destination.parent) as temp:
@@ -1687,6 +1695,7 @@ def main(argv=None):
     p.add_argument('--pages',help='只处理指定页，如 1-3 或 1,4,6（先试几页省额度）')
     a=p.parse_args(argv);pdf=a.pdf.resolve()
     if not pdf.is_file(): raise ValueError('PDF 不存在')
+    check_complete(pdf)
     out=(a.outdir or HERE/'output'/(pdf.stem+'-nosource')).resolve();out.mkdir(parents=True,exist_ok=True)
     if a.pages:
         # Work on an extracted copy; every later stage then sees only these pages.

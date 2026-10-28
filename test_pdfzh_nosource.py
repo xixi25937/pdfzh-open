@@ -652,7 +652,7 @@ class NativeTests(unittest.TestCase):
 
     def test_missing_typesetter_stops_before_translation(self):
         with tempfile.TemporaryDirectory() as folder:
-            src=Path(folder)/'input.pdf';src.touch()
+            src=Path(folder)/'input.pdf';src.write_bytes(b'%%EOF')
             with patch.object(app,'check_typesetting_environment',side_effect=RuntimeError('missing TeX')), \
                  patch.object(latex,'build_translation') as translate,patch.object(app,'prepare') as prepare:
                 with self.assertRaisesRegex(RuntimeError,'missing TeX'):
@@ -877,6 +877,16 @@ class NativeTests(unittest.TestCase):
             self.assertEqual(app.drop_long_strings(d),1)
             self.assertEqual(d.xref_get_key(x,'Subject')[1],'')
             self.assertEqual(d.xref_get_key(x,'Title')[1],'fig.pdf')
+
+    def test_truncated_download_is_rejected_but_trailing_junk_is_fine(self):
+        with pymupdf.open() as d:
+            d.new_page().insert_text((72,72),'hello');data=d.tobytes()
+        with tempfile.TemporaryDirectory() as t:
+            good=Path(t)/'good.pdf';good.write_bytes(data+b'\r\n'+b'\0'*500)
+            app.check_complete(good)
+            cut=Path(t)/'cut.pdf';cut.write_bytes(data[:len(data)//2])
+            with self.assertRaisesRegex(ValueError,'不完整'):app.check_complete(cut)
+            with self.assertRaisesRegex(ValueError,'不完整'):app.main([str(cut),'--outdir',str(Path(t)/'o'),'--offline'])
 
 
 if __name__=='__main__':unittest.main()

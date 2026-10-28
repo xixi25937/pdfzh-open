@@ -107,6 +107,8 @@ def main(argv=None):
     if not selected:print('[取消] 未选择 PDF。');return 0
     pdf=Path(selected.strip('"')).expanduser().resolve()
     if not pdf.is_file() or pdf.suffix.lower()!='.pdf':raise ValueError('请选择存在的 PDF 文件。')
+    from pdfzh_nosource import check_complete
+    check_complete(pdf)
     out=user.job_directory(pdf,args.output)
     seed_previous_cache(pdf,out)
     print('[说明] 解析、OCR 与排版在本机进行，只有文字翻译消耗 DeepSeek 额度。')
