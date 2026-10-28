@@ -1646,16 +1646,15 @@ def translate_plan(out,plan,tracking,cfg,offline):
         failed={x.get('id') for x in json.loads(errors.read_text(encoding='utf8'))} if errors.exists() else set()
         # Offline, only text the model already failed on may stay English;
         # never-requested text means the cache is incomplete.
-        if offline and missing-failed:raise
         # A styled paragraph the model keeps mis-marking falls back to its
         # plain segment: losing bold/italic beats keeping English. Offline
         # only when that plain translation is already cached.
-        swapped=0
-        for info in plan['pages']:
-            for s in info['slots']:
-                plain=s['segment'].get('plain_segment')
-                if plain and latex.digest(s['segment']['text']) in missing and (not offline or latex.digest(plain['text']) in cache):
-                    s['segment']=plain;swapped+=1
+        swap=[s for info in plan['pages'] for s in info['slots']
+              if (plain:=s['segment'].get('plain_segment')) and latex.digest(s['segment']['text']) in missing
+              and (not offline or latex.digest(plain['text']) in cache)]
+        if offline and missing-failed-{latex.digest(s['segment']['text']) for s in swap}:raise
+        for s in swap:s['segment']=s['segment']['plain_segment']
+        swapped=len(swap)
         if swapped:
             print(f'[翻译] {swapped} 个带样式段落未通过样式检查，改按纯文本重译（不保留粗斜体）',flush=True)
             return translate_plan(out,plan,tracking,cfg,offline)

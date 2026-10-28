@@ -780,6 +780,21 @@ class NativeTests(unittest.TestCase):
             with pymupdf.open(q['output_files']['chinese']) as cn:
                 self.assertIn('供电电压',cn[0].get_text());self.assertIn('Supply voltage',cn[1].get_text())
 
+    def test_offline_uses_cached_plain_translation_of_styled_segment(self):
+        # Regression rc=3: the styled key is missing but its plain_segment is
+        # cached; offline must swap to it, not stop on "cache incomplete".
+        plain={'text':'Hello world','protected':[]}
+        styled={'text':'@@P0@@Hello@@P1@@ world','protected':['{','}'],'plain_segment':plain}
+        plan={'pages':[{'slots':[{'segment':styled,'bbox':[0,0,1,1],'source':'Hello world'}],'retained':[]}]}
+        with tempfile.TemporaryDirectory() as folder:
+            out=Path(folder);latex.write_json(out/'text-cache.json',{latex.digest('Hello world'):'你好世界'})
+            def build(files,path,tracking,cfg,offline):
+                if files[0][2][0] is styled:raise latex.TranslationIncompleteError('missing')
+                return {'ok':1},{}
+            with patch.object(latex,'build_translation',side_effect=build):
+                self.assertEqual(app.translate_plan(out,plan,None,{},True)[0],{'ok':1})
+        self.assertIs(plan['pages'][0]['slots'][0]['segment'],plain)
+
     def test_long_metadata_string_is_blanked_for_xdvipdfmx(self):
         # 36022: a figure's InfoDict /Subject is a 4 MB hex string; xdvipdfmx
         # stops at 65535 bytes and the whole document failed (rc=5).
