@@ -291,6 +291,31 @@ Foo & 1.25 \\
         short=app.extract_segments('Safety instructions.')[0]
         app.validate_translation(short,'安全说明。')
 
+    def test_latin_person_names_must_survive_translation(self):
+        # 36192 p1: "Alice Wang & Bob You" came back as "王爱丽 & 尤波".
+        authors=native.segment('Alice Wang & Bob You NUS HPC-AI Lab alice@example.edu, bob@example.edu')
+        with self.assertRaisesRegex(ValueError,'人名'):
+            app.validate_translation(authors,'王爱丽 @@P0@@ 尤波 @@P1@@ @@P2@@ 实验室 @@P3@@，@@P4@@')
+        app.validate_translation(authors,'Alice Wang @@P0@@ Bob You @@P1@@ @@P2@@ 实验室 @@P3@@，@@P4@@')
+        # Superscript-marked author lines (island sentinels after each name).
+        marked=native.segment('Joseph Redmon\U000F0000, Santosh Divvala\U000F0001, Ross Girshick\U000F0002')
+        with self.assertRaisesRegex(ValueError,'人名'):
+            app.validate_translation(marked,'约瑟夫·雷德蒙@@P0@@，桑托什·迪夫瓦拉@@P1@@，罗斯·吉尔希克@@P2@@')
+        # Citations: "Li & He, 2026", "Ma et al." may lose "et al." but not the surname.
+        cite=native.segment('This makes optimization slow and challenging (Li & He, 2026; Ma et al., 2025).')
+        with self.assertRaisesRegex(ValueError,'人名'):
+            app.validate_translation(cite,'这使得优化缓慢且具有挑战性（李 @@P0@@ 何, @@P1@@；马等, @@P2@@）。')
+        app.validate_translation(cite,'这使得优化缓慢且具有挑战性（Li @@P0@@ He, @@P1@@；Ma 等, @@P2@@）。')
+        # Ordinary capitalised words are not names: sentence starts, Table,
+        # Figure, method names, keyword lists and titles stay translatable.
+        for source,value in [('Table 3 shows that Diffusion Policy outperforms LSTM-GMM in 2024.','表 @@P0@@ 表明扩散策略在 @@P2@@ 年优于 @@P1@@。'),
+                             ('Gaussian Splatting, Privacy Preservation, Anonymization, 3D Computer Vision','高斯泼溅，隐私保护，匿名化，@@P0@@ 计算机视觉'),
+                             ('Language Models are Few-Shot Learners','语言模型是少样本学习器'),
+                             ('Junlin Li, Li Zhang, and Jian Zhang. 2025d. Qinsight: Understanding image quality.','李俊林，张丽，和张健。@@P0@@ Qinsight：理解图像质量。'),
+                             ('Incorrect Answer \U000F0000 True Incorrect Answer \U000F0001 False','错误答案 @@P0@@ 对 错误答案 @@P1@@ 错'),
+                             ('Proceedings of the IEEE International Conference on Robotics and Automation, 2024.','@@P0@@ 国际机器人与自动化会议论文集，@@P1@@。')]:
+            app.validate_translation(native.segment(source),value)
+
     def test_truncated_first_response_retries_with_feedback(self):
         s=app.extract_segments('Extend the real-world experimental results with three bimanual manipulation tasks including Egg Beater, Mat Unrolling, and Shirt Folding in Sec. 7.')[0]
         key=app.digest(s['text']);calls=[]

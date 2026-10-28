@@ -220,6 +220,56 @@ def truncation_suspect(source: str, value: str):
     return len(words), hanzi
 
 
+NAME_WORD = r"[A-Z][a-zà-ÿ]+(?:['’-][A-Z]?[a-zà-ÿ]+)*(?![A-Za-z])"
+_YEAR = r"(?:19|20)\d\d[a-z]?\b"
+CITATIONS = [re.compile(p) for p in (
+    r'\b('+NAME_WORD+r')\s+et\s+al\b',                                   # Ma et al.
+    r'\b('+NAME_WORD+r')\s+&\s+('+NAME_WORD+r'),?\s*\(?'+_YEAR,          # Li & He, 2026
+    r'\(('+NAME_WORD+r')\s+and\s+('+NAME_WORD+r'),\s*'+_YEAR,            # (Li and He, 2026)
+    r'\b('+NAME_WORD+r')\s+and\s+('+NAME_WORD+r')\s+\('+_YEAR+r'\)',     # Li and He (2026)
+    r'[(\[;]\s*('+NAME_WORD+r'),\s*'+_YEAR,                              # (Smith, 2020)
+    r'\[('+NAME_WORD+r')\s+'+_YEAR+r'\]')]                               # [Smith 2020]
+NOT_NAMES = set('Table Tables Figure Fig Section Sec Eq Equation Algorithm Appendix Chapter Version '
+                'Revision Community Association In The A An And Our We This These See Note '
+                'January February March April May June July August September October November December '
+                'Jan Feb Mar Apr Jun Jul Aug Sep Sept Oct Nov Dec'.split())
+_PERSON = NAME_WORD+r"(?:\s+(?:[A-Z]\.|"+NAME_WORD+r")){1,3}"
+_MARK = r"[\U000F0000-\U000FFFFD*†‡§#]"   # island sentinel (superscript) or footnote sign
+_SEP = r"\s*(?:,\s*(?:and\s+)?|&|\band\b)\s*"
+AUTHOR_LINE = re.compile(r'\s*((?:'+_PERSON+r'(?:\s*'+_MARK+r'[\s,]*)*'+_SEP+r')+'+_PERSON+r'(?:\s*'+_MARK+r')*)')
+
+
+def latin_names(text: str) -> set[str]:
+    """Surnames in citations and person names of an author line, from the
+    plain source text. They must survive translation verbatim:
+    transliterating 'Bob You' back to hanzi invents a Chinese name. An
+    author line is recognised structurally (two or more 'First Last' joined
+    by , & and, each person carrying a footnote mark, or followed by an
+    e-mail), never by capitalisation alone (keyword lists, titles,
+    reference lists)."""
+    found = set()
+    for p in CITATIONS:
+        for m in p.finditer(text):
+            found |= {g for g in m.groups() if g and g not in NOT_NAMES}
+    m = AUTHOR_LINE.match(text)
+    if m:
+        people = [p for p in re.split(_SEP, m.group(1)) if p.strip()]
+        marked = sum(1 for p in people if re.search(_MARK, p))
+        if len(people) >= 2 and (marked >= len(people) - 1 or re.match(r'[^@]{0,80}\S@\S', text[m.end():])):
+            for p in people:
+                found |= {w for w in re.findall(NAME_WORD, p) if w not in NOT_NAMES}
+    return found
+
+
+def lost_names(segment: dict, value: str) -> list[str]:
+    source = segment.get('original', TOKEN.sub(' ', segment['text']))
+    names = latin_names(source)
+    if not names:
+        return []
+    have = value + ' ' + ' '.join(segment['protected'])
+    return sorted(n for n in names if not re.search(r'(?<![A-Za-z])'+re.escape(n)+r'(?![a-z])', have))
+
+
 def validate_translation(segment: dict, value: str) -> None:
     if not value.strip():
         raise ValueError('Empty translation')
@@ -261,6 +311,9 @@ def validate_translation(segment: dict, value: str) -> None:
     plain = TOKEN.sub('', value)
     if any(c in plain for c in '\\{}$&%#_^'):
         raise ValueError('Translation contains unescaped TeX syntax')
+    lost = lost_names(segment, value)
+    if lost:
+        raise ValueError('人名被音译或丢失：'+', '.join(lost)+'；引用和作者行里的拉丁字母人名必须原样保留（et al. 可译为“等”）')
     suspect = truncation_suspect(segment['text'], value)
     if suspect:
         raise ValueError(f'译文疑似漏译：译文只有 {suspect[1]} 个汉字，原文有 {suspect[0]} 个英文词；请翻译全部内容，不要省略任何从句')
@@ -384,6 +437,7 @@ def api_batch(batch, config):
              'Never move words or protected tokens into another phrase; local code assembles the formatting. '
              'Translate ALL clauses without summarizing or omitting comparisons, even when the source ends mid-sentence. '
              'Keep numbers, names, acronyms, model names and claims intact. '
+             'Person names (authors, citations like "Li & He, 2026") stay in Latin letters; never transliterate them into Chinese. '
              'Do not output LaTeX commands or any backslash, braces, dollar, percent, ampersand, '
              'hash, underscore or caret characters. Use Chinese punctuation. '
              'Translate headings, captions and algorithm instructions. '
