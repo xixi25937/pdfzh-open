@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pymupdf
 
+# Image blocks are never used; decoding them took ~5 s per call on 36460 p4.
+TEXT_ONLY = pymupdf.TEXTFLAGS_DICT & ~pymupdf.TEXT_PRESERVE_IMAGES
 CJK = re.compile(r'[一-鿿㐀-䶿]')
 LATIN3 = re.compile(r'[A-Za-z]{3,}')
 FUNC = {'the', 'of', 'and', 'for', 'in', 'on', 'to', 'a', 'an', 'with', 'from', 'by', 'as', 'at', 'is', 'are'}
@@ -29,7 +31,7 @@ def find(page, kind, bbox, text, detail=''):
 
 
 def body_median(page):
-    sizes = [s['size'] for b in page.get_text('dict')['blocks'] if b['type'] == 0
+    sizes = [s['size'] for b in page.get_text('dict', flags=TEXT_ONLY)['blocks'] if b['type'] == 0
              for ln in b['lines'] for s in ln['spans'] if s['text'].strip()]
     sizes.sort()
     return sizes[len(sizes) // 2] if sizes else 10
@@ -156,15 +158,18 @@ def audit_page(page, page_no, half, src_page, zones, src_words):
                                      f'chinese "{t.strip()[-12:]}" ({len(t.strip())} chars) truncates source line ({len(src_line.strip())} chars)'))
 
     # --- tiny: line is much smaller than the source line at the same y ---
+    # body_median re-extracts the whole page: once per page, not once per line pair
+    # (36460 took >10 min per page).
+    median = body_median(src_page)
     src_lines = []
-    for b in src_page.get_text('dict')['blocks']:
+    for b in src_page.get_text('dict', flags=TEXT_ONLY)['blocks']:
         if b['type'] != 0:
             continue
         for ln in b['lines']:
             spans = [s for s in ln['spans'] if s['text'].strip()]
             text = ''.join(s['text'] for s in spans)
             # skip stray artifacts (watermarks etc.) unless they are huge display lines
-            if not (spans and (len(text.strip()) >= 12 or max(s['size'] for s in spans) >= 1.3 * body_median(src_page))):
+            if not (spans and (len(text.strip()) >= 12 or max(s['size'] for s in spans) >= 1.3 * median)):
                 continue
             # inline math can inflate the line bbox beyond the prose baseline; use span bottoms
             y1 = min(max(s['bbox'][3] for s in spans), ln['bbox'][1] + 1.6 * max(s['size'] for s in spans))
@@ -176,7 +181,7 @@ def audit_page(page, page_no, half, src_page, zones, src_words):
             continue
         near = [sz for bb, sz in src_lines
                 if bb.y0 - 12 < bbox.y0 < bb.y1 + 6 and not (
-                    sz > 1.3 * body_median(src_page) and bb.x1 - bb.x0 < 0.4 * src_page.rect.width)]
+                    sz > 1.3 * median and bb.x1 - bb.x0 < 0.4 * src_page.rect.width)]
         if not near:
             continue
         ref = max(near)
@@ -206,7 +211,7 @@ def audit_page(page, page_no, half, src_page, zones, src_words):
                 pairs.append((a, b))
         return pairs
     src_lines = []
-    for b in src_page.get_text('dict')['blocks']:
+    for b in src_page.get_text('dict', flags=TEXT_ONLY)['blocks']:
         if b['type'] != 0: continue
         for ln in b['lines']:
             spans = [s for s in ln['spans'] if s['text'].strip()]
