@@ -289,6 +289,18 @@ class NativeTests(unittest.TestCase):
             with self.assertRaises(ValueError):app.translated_text(s,bad)
         with self.assertRaises(ValueError):app.translated_text(app.segment('Value 5.4'),'数值 @@P0@@ 7')
 
+    def test_roman_numeral_after_reference_word_may_become_arabic(self):
+        s=app.segment('Ranges are in Table I and the rewards in Table II.')
+        self.assertEqual(s['protected'],['II'])
+        self.assertEqual(app.translated_text(s,'范围见表1，奖励见表@@P0@@。'),'范围见表1，奖励见表II。')
+        self.assertEqual(app.translated_text(s,'范围见表I，奖励见表@@P0@@。'),'范围见表I，奖励见表II。')
+        # Only the numeral after the reference word is exempt, once per occurrence.
+        for bad in ['范围见表1，共1项，奖励见表@@P0@@。','范围见表1，共2项，奖励见表@@P0@@。','范围见表1和表1，奖励见表@@P0@@。']:
+            with self.assertRaises(ValueError,msg=bad):app.translated_text(s,bad)
+        f=app.segment('We use 3 of them in Figure I.')
+        self.assertEqual(app.translated_text(f,'我们使用 @@P0@@ 个，见图1。'),'我们使用 3 个，见图1。')
+        with self.assertRaises(ValueError):app.translated_text(f,'我们使用 @@P0@@ 个，见图1，共1项。')
+
     def test_fraction_with_three_prose_words_does_not_translate_numerator(self):
         with pymupdf.open() as d:
             p=d.new_page(width=500,height=300)
