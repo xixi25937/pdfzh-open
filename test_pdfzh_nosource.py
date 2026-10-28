@@ -849,6 +849,25 @@ class NativeTests(unittest.TestCase):
                 self.assertEqual(app.translate_plan(out,plan,None,{},True)[0],{'ok':1})
         self.assertIs(plan['pages'][0]['slots'][0]['segment'],plain)
 
+    def test_bad_key_keeps_original_without_plain_retry_and_flags_failure(self):
+        # Real run with DEEPSEEK_API_KEY=invalid: every request failed, the
+        # styled paragraphs were retried as plain text (a second full round)
+        # and the run ended rc=0 with nothing translated.
+        plain={'text':'Hello world','protected':[]}
+        styled={'text':'@@P0@@Hello@@P1@@ world','protected':['{','}'],'plain_segment':plain}
+        plan={'pages':[{'slots':[{'segment':styled,'bbox':[0,0,1,1],'source':'Hello world'}],'retained':[]}]}
+        calls=[]
+        with tempfile.TemporaryDirectory() as folder:
+            out=Path(folder);latex.write_json(out/'text-cache.json',{})
+            def build(*a):
+                calls.append(1);raise latex.TranslationIncompleteError('密钥无效或无权限；请运行 pdfzh.cmd configure 更换密钥后重试，已有译文不重译。')
+            with patch.object(latex,'build_translation',side_effect=build):
+                cache,_=app.translate_plan(out,plan,None,{},False)
+        self.assertEqual(cache,{})
+        self.assertEqual(len(calls),1)
+        self.assertIs(plan['pages'][0]['slots'][0]['segment'],styled)
+        self.assertIn('密钥无效',plan['api_failure'])
+
     def test_long_metadata_string_is_blanked_for_xdvipdfmx(self):
         # 36022: a figure's InfoDict /Subject is a 4 MB hex string; xdvipdfmx
         # stops at 65535 bytes and the whole document failed (rc=5).

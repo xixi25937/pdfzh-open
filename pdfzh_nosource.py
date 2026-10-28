@@ -1660,8 +1660,12 @@ def translate_plan(out,plan,tracking,cfg,offline):
         # A styled paragraph the model keeps mis-marking falls back to its
         # plain segment: losing bold/italic beats keeping English. Offline
         # only when that plain translation is already cached.
+        # A bad key or no network fails every request: retrying plain text
+        # is pointless, and the run must not report success.
+        api_down=any(k in str(e) for k in ('密钥无效','无法连接翻译服务'))
+        if api_down:plan['api_failure']=str(e)
         swap=[s for info in plan['pages'] for s in info['slots']
-              if (plain:=s['segment'].get('plain_segment')) and latex.digest(s['segment']['text']) in missing
+              if not api_down and (plain:=s['segment'].get('plain_segment')) and latex.digest(s['segment']['text']) in missing
               and (not offline or latex.digest(plain['text']) in cache)]
         if offline and missing-failed-{latex.digest(s['segment']['text']) for s in swap}:raise
         for s in swap:s['segment']=s['segment']['plain_segment']
@@ -1722,7 +1726,11 @@ def main(argv=None):
         print(f'[错误] 排版失败（{str(e)[:120]}）；已输出原文副本 {copy}，译文缓存已保留',flush=True)
         sys.exit(5)
     report['this_run_translation_usage']=usage
+    if plan.get('api_failure'):report['translation_failure']=plan['api_failure']
     latex.write_json(out/'qa.json',report)
+    if plan.get('api_failure'):
+        print(f'[翻译未完成] {plan["api_failure"]} 本次输出中未译部分保留原文：{report["output_files"]["bilingual"]}',file=sys.stderr,flush=True)
+        sys.exit(3)
 
 
 if __name__=='__main__':

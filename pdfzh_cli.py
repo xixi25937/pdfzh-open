@@ -129,7 +129,14 @@ def main(argv=None):
         if rc==4:
             print('[未完成] 原文的本地保护结构有问题，本次没有调用翻译接口。请保留缓存与诊断文件；重复翻译无效。诊断目录：'+str(out))
         elif rc==3:
-            print('[未完成] 仍有片段缺少合格译文，--offline 不能补齐。修正问题后重新运行，只补缺失片段；已有合格缓存不重译。诊断目录：'+str(out))
+            qa=out/('reflow-qa.json' if args.mode=='reflow' else 'qa.json')
+            report=json.loads(qa.read_text(encoding='utf8')) if qa.exists() else {}
+            if report.get('translation_failure'):
+                # Bad key / no network: a document with the original text is still delivered.
+                print('[未完成] '+report['translation_failure']+' 已输出 PDF（未译部分保留原文）：'+report['output_files']['bilingual']+'。诊断目录：'+str(out))
+                if not args.no_open:reveal(out)
+            else:
+                print('[未完成] 仍有片段缺少合格译文，--offline 不能补齐。修正问题后重新运行，只补缺失片段；已有合格缓存不重译。诊断目录：'+str(out))
         else:
             print('[未完成] 译文缓存已保留。若是编译或质检失败，重复翻译不能修复；可用 --offline 零翻译费用重排。诊断目录：'+str(out))
         return rc
