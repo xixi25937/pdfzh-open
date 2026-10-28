@@ -784,6 +784,9 @@ def math_islands(blocks):
     """
     def math_like(s,prose_size):
         t=s['text'].strip()
+        # CMEX encodes big delimiters as C0 codes ('\r' is a brace piece), which
+        # strip() would treat as blank; they are glyphs of the formula.
+        if MATH_FONT.match(s['font']) and any(unicodedata.category(c)=='Cc' and c!=' ' for c in s['text']):return 'strong'
         if not t or t in '•∙◦':return None
         if MATH_FONT.match(s['font']):return 'strong'
         if WEAK_MATH_FONT.match(s['font']) and (s['size']<prose_size*.85 or SYMBOLIC.fullmatch(t)):return 'weak'
@@ -932,7 +935,9 @@ def math_islands(blocks):
     # inside a prose row ("of size x/2n rather than"); the row rejoins it.
     def prose_row(a):
         cy=(a['bbox'].y0+a['bbox'].y1)/2
-        return next((l for l in row_lines if '_items' not in l and re.search(r'[A-Za-z]{3,}',''.join(s['text'] for s in l['spans']))
+        # A row that has islands of its own ("segment, u_f = clip") is still
+        # prose; only rows made of math alone are not.
+        return next((l for l in row_lines if l is not a['line'] and not ('_items' in l and all('members' in x or not re.search(r'\w',x['text']) for x in l['_items'])) and re.search(r'[A-Za-z]{3,}',''.join(s['text'] for s in l['spans']))
                    and l['bbox'][1]<=cy<=l['bbox'][3]
                    and (0<=a['bbox'].x0-l['bbox'][2]<=a['size'] or 0<=l['bbox'][0]-a['bbox'].x1<=a['size'])),None)
     for a in alive:

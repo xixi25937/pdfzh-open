@@ -1,4 +1,5 @@
 import unittest
+import unicodedata
 from unittest.mock import patch
 import tempfile
 import hashlib
@@ -140,6 +141,27 @@ class NativeTests(unittest.TestCase):
         # A same-size leading digit (list number) is not a marker.
         plain=build(9)
         self.assertEqual(app.math_islands(plain),[])
+
+    def test_cmex_control_code_delimiters_join_island_on_prose_row_with_islands(self):
+        # 36539 p4: "segment, u_f = clip ( ... , 0, 1 )" - the CMEX10 big
+        # parentheses are '\x00'/'\x01' in their own PDF lines next to a row
+        # that already has an island (u_f); they stayed in the paragraph and
+        # the whole paragraph was kept English as unmapped_glyph.
+        def sp(t,font,size,x0,x1,y0,y1,base):
+            return {'text':t,'font':font,'size':size,'flags':0,'color':0,'bbox':(x0,y0,x1,y1),'origin':(x0,base)}
+        blocks=[{'type':0,'lines':[
+            {'bbox':(58,703,136,714),'dir':(1,0),'spans':[sp('segment,','NimbusRomNo9L-Regu',10,58.5,94.3,703.2,713.2,710.8),
+             sp(' u','CMMI10',10,94.3,102.5,703,713,710.8),sp('f','CMMI7',7,102.5,106.3,706.8,713.8,712.3),
+             sp(' ','CMR10',10,106.3,110.4,704.5,714.5,712.3),sp('= clip','CMR10',10,110.4,136.4,703,713,710.8)]},
+            {'bbox':(136,697,199,712),'dir':(1,0),'spans':[sp('\x00','CMEX10',10,136.4,141,702.1,712.1,702.7),
+             sp(' (','CMR7',7,141,145.3,697.3,707.2,702.7),sp('c','CMMI7',7,145.3,148.9,700.2,707.2,705.7),sp(')','CMR7',7,195.9,199.1,700.2,707.2,705.7)]},
+            {'bbox':(200,703,222,713),'dir':(1,0),'spans':[sp(',','CMMI10',10,200.3,203,703,713,710.8),sp(' 0','CMR10',10,203,211.3,703,713,710.8)]},
+            {'bbox':(222,702,227,712),'dir':(1,0),'spans':[sp('\x01','CMEX10',10,222.4,227,702.1,712.1,702.7)]},
+            {'bbox':(227,703,295,715),'dir':(1,0),'spans':[sp(', where the','NimbusRomNo9L-Regu',10,227,295,703.2,713.2,710.8)]}]}]
+        app.math_islands(blocks)
+        text=''.join(s['text'] for l in blocks[0]['lines'] for s in l['spans'])
+        self.assertFalse(any(unicodedata.category(c)=='Cc' for c in text),ascii(text))
+        self.assertIn('segment,',text)
 
     def test_tall_arrow_box_is_clamped_to_its_ink(self):
         # Adam's "←" (CMSY10 9.7pt) reports an 18pt box, 1.9x its size, and
