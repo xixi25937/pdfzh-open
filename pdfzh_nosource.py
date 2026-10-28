@@ -1600,10 +1600,17 @@ def compile_overlay(pdf,out,plan,cache,*,allow_fallback=True,rounds=0):
             # overlapping chart labels extract as scrambled digits); the
             # whole page only when no slot can be blamed or it fails again.
             blamed=[s['bbox'] for s in valid if s['page']==p and set(NUMBERS.findall(s['source']+' '+s['translation']))&bad.get(p,set())]
-            # A slot box reaching into a table row erases numbers its text
-            # does not carry (36312 p7): blame it by position too.
-            blamed+=[s['bbox'] for s in valid if s['page']==p and s['bbox'] not in blamed
-                     and any(r.intersects(pymupdf.Rect(s['bbox'])) for r in where.get(p,[]))]
+            # Single digits missing from one merged formula ("I3"+"1" -> "31")
+            # match nearly every slot (37043 p7: 9 innocent body boxes). A
+            # surplus token is specific: blame only its slots first.
+            surplus={t for e in extra if e['page']==p for t in e['extra']}
+            first=[s['bbox'] for s in valid if s['page']==p and set(NUMBERS.findall(s['source']+' '+s['translation']))&surplus]
+            if first and rounds==0:blamed=first
+            else:
+                # A slot box reaching into a table row erases numbers its text
+                # does not carry (36312 p7): blame it by position too.
+                blamed+=[s['bbox'] for s in valid if s['page']==p and s['bbox'] not in blamed
+                         and any(r.intersects(pymupdf.Rect(s['bbox'])) for r in where.get(p,[]))]
             if blamed and rounds<2:
                 restored+=fall_back(plan,p-1,blamed,'number_check_fallback','该文本框数字检查未通过，恢复原文')
             else:

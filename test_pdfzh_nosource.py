@@ -1,4 +1,5 @@
 import unittest
+import re
 import unicodedata
 from unittest.mock import patch
 import tempfile
@@ -833,6 +834,38 @@ class NativeTests(unittest.TestCase):
             self.assertEqual(q['fallback_pages'],[])
             self.assertIn('number_check_fallback',q['retained_by_kind'])
             with pymupdf.open(q['output_files']['chinese']) as cn:self.assertIn('中文译文',cn[0].get_text())
+
+    @unittest.skipUnless(shutil.which('xelatex') and shutil.which('latexmk'),'requires local TeX Live')
+    def test_merged_formula_digits_blame_the_surplus_slot_not_every_slot_with_a_digit(self):
+        # 37043 p7: "I3"+"1" rendered as "31", so "3"/"1" went missing and every
+        # body box holding a "1" or "3" was restored (10 boxes, 97.1%).
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);src=root/'one.pdf';out=root/'out';out.mkdir()
+            with pymupdf.open() as d:
+                p=d.new_page(width=360,height=300)
+                p.insert_text((25,60),'Matrix value 31 holds here.');p.insert_text((25,200),'Ground pin is 1 and 3 low.')
+                d.save(src)
+            latex.write_json(out/'layout.json',{'sha256':hashlib.sha256(src.read_bytes()).hexdigest(),'pages':[{'regions':[]}]})
+            plan=app.prepare(src,out)
+            cache={latex.digest(s['segment']['text']):('矩阵' if 'Matrix' in s['source'] else '接地')+' '.join(re.findall(r'@@\w+@@|\d+',s['segment']['text']))
+                   for p in plan['pages'] for s in p['slots']}
+            real=latex.compile_project
+            def merge(project,main):
+                # While the formula box is translated, its digits steal the
+                # body box's "1"/"3" and extract as one extra "31".
+                pdf,w,c=real(project,main)
+                with pymupdf.open(pdf) as d:
+                    pg=d[0];hit='矩阵' in pg.get_text()
+                    if hit:
+                        for r in pg.search_for('1')+pg.search_for('3'):
+                            if r.y0>150:pg.add_redact_annot(r)
+                        pg.apply_redactions();pg.insert_text((250,60),'31',fontsize=6);d.save(pdf.with_suffix('.tmp.pdf'))
+                if hit:os.replace(pdf.with_suffix('.tmp.pdf'),pdf)
+                return pdf,w,c
+            with patch.object(latex,'compile_project',side_effect=merge):
+                q=app.compile_overlay(src,out,plan,cache)
+            self.assertTrue(q['automated_checks_passed'])
+            self.assertEqual([r['text'] for r in q['retained_regions']],['Matrix value 31 holds here.'])
 
     def test_offline_uses_cached_plain_translation_of_styled_segment(self):
         # Regression rc=3: the styled key is missing but its plain_segment is
