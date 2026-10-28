@@ -47,6 +47,8 @@ NATIVE_TOKEN=re.compile(
 NUMBERS=re.compile(r'(?<!\d)\d+(?:\.\d+)?')
 ROMAN_VALUES={r:i for i,r in enumerate('I II III IV V VI VII VIII IX X XI XII XIII XIV XV XVI XVII XVIII XIX XX'.split(),1)}
 REFERENCE_ROMAN=re.compile(r'\b(?i:tables?|figs?\.?|figures?|sections?|secs?\.?|algorithms?|eqs?\.?|equations?)\s+('+'|'.join(sorted(ROMAN_VALUES,key=len,reverse=True))+r')\b')
+WORD_VALUES={w:i for i,w in enumerate('zero one two three four five six seven eight nine ten'.split())}
+NUMBER_WORDS=re.compile(r'\b(?i:(zero|one|two|three|four|five|six|seven|eight|nine|ten)s?)\b')
 MONTHS={name:i for i,name in enumerate('January February March April May June July August September October November December'.split(),1)}
 ACRONYMS=set('CMOS NMOS PMOS MOSFET JFET JEDEC ROHS ESD TTL SCSI SOIC SOP TSSOP SOT DFN QFN LDO ESR PSRR PCB GND VIN VOUT IOUT ILOAD VREF ADJ CADJ COUT CIN TJ TA JA RMS DRW TYP AMS IN OUT'.split())
 SHORT_ENGLISH=set('LOW HIGH LINE LOAD VIEW LEAD CASE TYPE TAB TOP SIDE PIN PINS INCH NOTE NOT DOES MOLD PER FOR FROM WITH THE AND THIS THAT SHALL TO OF IS AS AT BY ON OR AN'.split())
@@ -277,6 +279,11 @@ def translated_text(s,value):
     # "Table I" -> "表1": a Roman numeral after a reference word may become Arabic.
     for roman in REFERENCE_ROMAN.findall(s['text']):
         n=str(ROMAN_VALUES[roman.upper()])
+        if actual[n]-expected[n]-additions[n]>0: additions[n]+=1
+    # "turning ones into zeros and twos" -> "把 1 变成 0 和 2": each spelled-out
+    # number word may become its Arabic digit, once per source occurrence.
+    for word in NUMBER_WORDS.findall(s['text']):
+        n=str(WORD_VALUES[word.lower()])
         if actual[n]-expected[n]-additions[n]>0: additions[n]+=1
     if actual!=expected+additions:
         raise ValueError('数字完整性检查失败：'+s['original'][:80]+

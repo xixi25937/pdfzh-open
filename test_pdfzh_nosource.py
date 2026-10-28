@@ -339,6 +339,19 @@ class NativeTests(unittest.TestCase):
         self.assertEqual(app.translated_text(f,'我们使用 @@P0@@ 个，见图1。'),'我们使用 3 个，见图1。')
         with self.assertRaises(ValueError):app.translated_text(f,'我们使用 @@P0@@ 个，见图1，共1项。')
 
+    def test_number_word_may_become_arabic(self):
+        # 36873 p1: "turning ones into alternating zeros and twos ... at most one"
+        # came back as "把 1 变成交替的 0 和 2 ... 至多为 1"; the paragraph stayed English.
+        s=app.segment('Turning ones into zeros and twos changes any sum by at most one (Figure 1).')
+        self.assertEqual(app.translated_text(s,'把 1 变成 0 和 2，任何和的变化至多为 1（图 @@P0@@）。'),
+                         '把 1 变成 0 和 2，任何和的变化至多为 1（图 1）。')
+        app.translated_text(s,'把一变成零和二，任何和的变化至多为一（图 @@P0@@）。')
+        # Only digits of words present in the source, once per occurrence.
+        for bad in ['把 1 变成 0 和 2，任何和的变化至多为 1 或 1（图 @@P0@@）。','把 1 变成 0 和 3，至多为 1（图 @@P0@@）。']:
+            with self.assertRaises(ValueError,msg=bad):app.translated_text(s,bad)
+        # A protected source number still has to survive.
+        with self.assertRaises(ValueError):app.translated_text(s,'把 1 变成 0 和 2，至多为 1（图）。')
+
     def test_fraction_with_three_prose_words_does_not_translate_numerator(self):
         with pymupdf.open() as d:
             p=d.new_page(width=500,height=300)
