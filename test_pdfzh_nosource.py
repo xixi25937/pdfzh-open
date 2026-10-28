@@ -780,6 +780,38 @@ class NativeTests(unittest.TestCase):
             with pymupdf.open(q['output_files']['chinese']) as cn:
                 self.assertIn('供电电压',cn[0].get_text());self.assertIn('Supply voltage',cn[1].get_text())
 
+    @unittest.skipUnless(shutil.which('xelatex') and shutil.which('latexmk'),'requires local TeX Live')
+    def test_number_erased_under_a_slot_box_restores_that_slot_not_the_page(self):
+        # 36312 p7: a table-header slot box covered the next row and erased
+        # "200.92", a number its own text lacks; the whole page went English.
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);src=root/'one.pdf';out=root/'out';out.mkdir()
+            with pymupdf.open() as d:
+                p=d.new_page(width=360,height=300)
+                p.insert_text((25,60),'Supply voltage is high.');p.insert_text((25,200),'Ground pin is low.')
+                p.insert_text((40,66),'200.92',fontsize=2.5)
+                d.save(src)
+            latex.write_json(out/'layout.json',{'sha256':hashlib.sha256(src.read_bytes()).hexdigest(),'pages':[{'regions':[]}]})
+            plan=app.prepare(src,out)
+            cache={latex.digest(s['segment']['text']):'中文译文' for p in plan['pages'] for s in p['slots']}
+            top=[s for s in plan['pages'][0]['slots'] if 'Supply' in s['source']][0]
+            top['bbox']=[top['bbox'][0],top['bbox'][1],top['bbox'][2],70]
+            real=latex.compile_project;calls=[]
+            def erase(project,main):
+                pdf,w,c=real(project,main);calls.append(1)
+                if len(calls)==1:
+                    with pymupdf.open(pdf) as d:
+                        for r in d[0].search_for('200.92'):d[0].add_redact_annot(r)
+                        d[0].apply_redactions();d.save(pdf.with_suffix('.tmp.pdf'))
+                    os.replace(pdf.with_suffix('.tmp.pdf'),pdf)
+                return pdf,w,c
+            with patch.object(latex,'compile_project',side_effect=erase):
+                q=app.compile_overlay(src,out,plan,cache)
+            self.assertTrue(q['automated_checks_passed'])
+            self.assertEqual(q['fallback_pages'],[])
+            self.assertIn('number_check_fallback',q['retained_by_kind'])
+            with pymupdf.open(q['output_files']['chinese']) as cn:self.assertIn('中文译文',cn[0].get_text())
+
     def test_offline_uses_cached_plain_translation_of_styled_segment(self):
         # Regression rc=3: the styled key is missing but its plain_segment is
         # cached; offline must swap to it, not stop on "cache incomplete".

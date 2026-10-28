@@ -1542,7 +1542,7 @@ def compile_overlay(pdf,out,plan,cache,*,allow_fallback=True,rounds=0):
             'slots':[{k:v for k,v in s.items() if k!='segment'}|{'render_font':fonts.get(s['id']),'render_leading':leading.get(s['id'])} for s in valid]}
     with pymupdf.open(rendered) as result,pymupdf.open(pdf) as source:
         report['page_count_correct']=len(result)==len(source)
-        missing=[];extra=[]
+        missing=[];extra=[];where={}
         for i,(a,b) in enumerate(zip(source,result)):
             expected=Counter(NUMBERS.findall(a.get_text()))
             # Segment validation already permits only source-matched month
@@ -1560,7 +1560,9 @@ def compile_overlay(pdf,out,plan,cache,*,allow_fallback=True,rounds=0):
                 parts=Counter(token.split('.'))
                 if not parts-surplus:delta[token]-=1;surplus-=parts
             delta=+delta
-            if delta:missing.append({'page':i+1,'missing':dict(delta)})
+            if delta:
+                missing.append({'page':i+1,'missing':dict(delta)})
+                where[i+1]=[pymupdf.Rect(w[:4]) for w in a.get_text('words') if set(NUMBERS.findall(w[4]))&set(delta)]
             if surplus:extra.append({'page':i+1,'extra':dict(surplus)})
         report['missing_numeric_tokens']=missing
         report['extra_numeric_tokens']=extra
@@ -1585,6 +1587,10 @@ def compile_overlay(pdf,out,plan,cache,*,allow_fallback=True,rounds=0):
             # overlapping chart labels extract as scrambled digits); the
             # whole page only when no slot can be blamed or it fails again.
             blamed=[s['bbox'] for s in valid if s['page']==p and set(NUMBERS.findall(s['source']+' '+s['translation']))&bad.get(p,set())]
+            # A slot box reaching into a table row erases numbers its text
+            # does not carry (36312 p7): blame it by position too.
+            blamed+=[s['bbox'] for s in valid if s['page']==p and s['bbox'] not in blamed
+                     and any(r.intersects(pymupdf.Rect(s['bbox'])) for r in where.get(p,[]))]
             if blamed and rounds<2:
                 restored+=fall_back(plan,p-1,blamed,'number_check_fallback','该文本框数字检查未通过，恢复原文')
             else:
