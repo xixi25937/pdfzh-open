@@ -617,6 +617,27 @@ class NativeTests(unittest.TestCase):
         self.assertTrue(all(not(i['bbox'][0]<290 and i['bbox'][2]>292) for i in islands))
         self.assertEqual([l['bbox'][2] for l in body['lines']],[289])
 
+    def test_not_slash_fuses_with_following_relation(self):
+        # 37297 p6: "Tk' \not= Tk" is a zero-width CMSY slash, a space glyph, then
+        # "="; the loose slash stayed after Tk' and the translation showed "=".
+        def sp(t,font,size,x0,x1):
+            return {'text':t,'font':font,'size':size,'flags':0,'color':0,'bbox':(x0,544.7,x1,554.7),'origin':(x0,552.7)}
+        line={'bbox':(407,544.7,456,555),'dir':(1,0),'spans':[
+            sp('T','CMMI10',10,413.5,419.4),sp('\u2032','CMSY5',5,423.8,426.0),sp('\u0338','CMSY10',10,426.0,426.0),
+            sp(' ','CMR10',10,426.0,432.5),sp('=','CMR10',10,432.5,440.2),sp(' T','CMMI10',10,440.2,451.5)]}
+        app.merge_negation([{'type':0,'bbox':line['bbox'],'lines':[line]}])
+        self.assertEqual([s['text'] for s in line['spans']],['T','\u2032',' \u2260',' T'])
+        self.assertEqual(line['spans'][2]['bbox'][0],426.0)
+        self.assertEqual(line['spans'][2]['bbox'][2],440.2)
+        # \not before a letter has no precomposed form; \in -> \notin; far apart stays.
+        for base,fused in (('\u2208','\u2209'),('\u2264','\u2270')):
+            l={'bbox':(0,544,50,555),'dir':(1,0),'spans':[sp('\u0338','CMSY10',10,10,10),sp(base,'CMSY10',10,10,18)]}
+            app.merge_negation([{'type':0,'bbox':l['bbox'],'lines':[l]}])
+            self.assertEqual([s['text'] for s in l['spans']],[fused])
+        l={'bbox':(0,544,50,555),'dir':(1,0),'spans':[sp('\u0338','CMSY10',10,10,10),sp('a','CMMI10',10,10,18)]}
+        app.merge_negation([{'type':0,'bbox':l['bbox'],'lines':[l]}])
+        self.assertEqual(len(l['spans']),2)
+
     def test_pseudo_code_rows_stay_separate_slots(self):
         # Adam p2: each Require/step row of Algorithm 1 must keep its own line
         # and box; merging them into one paragraph reflows rows onto each other.

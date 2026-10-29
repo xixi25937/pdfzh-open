@@ -840,6 +840,33 @@ def small_caps(blocks):
                     s['text']=t.lower();s['size']=prev['size']
 
 
+def merge_negation(blocks):
+    """TeX \\not= draws a zero-width slash (CMSY, U+0338) and then the relation;
+    extracted loose, the slash lands after the previous formula and the relation
+    prints as a bare "=" (37297 p6: "Tk' != Tk"). Fuse the pair into the precomposed
+    symbol (=, in, <=, ... -> !=, not-in, not-<=) inside the relation's span; the
+    span's box covers both glyphs, so both are erased."""
+    for b in blocks:
+        if b['type']!=0:continue
+        for line in b['lines']:
+            spans=line['spans']
+            for s in spans:
+                if len(s['text'])>1 and '\u0338' in s['text']:s['text']=unicodedata.normalize('NFC',s['text'])
+            i=0
+            while i<len(spans):
+                s=spans[i]
+                if s['text'].strip() in ('\u0338','\u20d2'):
+                    j=i+1
+                    while j<len(spans) and not spans[j]['text'].strip():j+=1
+                    if j<len(spans):
+                        t=spans[j];rest=t['text'].lstrip();fused=unicodedata.normalize('NFC',rest[:1]+s['text'].strip())
+                        sb,tb=s['bbox'],t['bbox']
+                        if len(fused)==1 and 0<=tb[0]-sb[2]<=max(s['size'],t['size']) and min(sb[3],tb[3])>max(sb[1],tb[1]):
+                            text=''.join(x['text'] for x in spans[i+1:j])+t['text'][:len(t['text'])-len(rest)]+fused+rest[1:]
+                            spans[i:j+1]=[{**t,'text':text,'bbox':(sb[0],min(sb[1],tb[1]),tb[2],max(sb[3],tb[3]))}]
+                i+=1
+
+
 def math_islands(blocks):
     """Replace inline math (math-font spans with their sub/superscripts) by one
     private-use sentinel span each, in place. Returns island descriptions.
@@ -1074,6 +1101,7 @@ def blocks_for_page(page,regions):
     page_blocks=page.get_text('dict')['blocks']
     tall_glyph_boxes(page,page_blocks)
     small_caps(page_blocks)
+    merge_negation(page_blocks)
     page_spans=[s for b in page_blocks if b['type']==0 for l in b['lines'] for s in l['spans'] if s['text'].strip()]
     islands=math_islands(page_blocks)
     # Inline math makes PDF producers start a new block mid-sentence on the
