@@ -638,6 +638,20 @@ class NativeTests(unittest.TestCase):
         app.merge_negation([{'type':0,'bbox':l['bbox'],'lines':[l]}])
         self.assertEqual(len(l['spans']),2)
 
+    def test_comma_between_merged_islands_joins_the_island(self):
+        # 37178 p5: "[Z,E,x]^p , [Z,E,x]^q" - two coloured formulas merged into one
+        # island while the text-font comma between them stayed behind inside the
+        # island box: never erased, so the whole paragraph kept English.
+        def sp(t,font,size,x0,x1):
+            return {'text':t,'font':font,'size':size,'flags':0,'color':0,'bbox':(x0,177.2,x1,187.2),'origin':(x0,185)}
+        first={'bbox':(10,177.2,36,187.2),'dir':(1,0),'spans':[sp('Let ','NimbusRomNo9L-Regu',10,10,30),sp('x','CMMI10',10,30,36)]}
+        second={'bbox':(36.3,177.2,58,187.2),'dir':(1,0),'spans':[sp(',','NimbusRomNo9L-Regu',10,36.3,38.8),sp(' y','CMMI10',10,39,45),sp(' are','NimbusRomNo9L-Regu',10,45,58)]}
+        blocks=[{'type':0,'bbox':(10,177.2,58,187.2),'lines':[first,second]}]
+        islands=app.math_islands(blocks)
+        self.assertEqual(len(islands),1)
+        self.assertTrue(any(m[0]==36.3 for m in islands[0]['members']))
+        rest=[s['text'] for l in blocks[0]['lines'] for s in l['spans'] if ord(s['text'][:1] or ' ')<app.ISLAND_BASE and s['text'].strip()]
+        self.assertEqual(rest,['Let ',' are'])
     def test_pseudo_code_rows_stay_separate_slots(self):
         # Adam p2: each Require/step row of Algorithm 1 must keep its own line
         # and box; merging them into one paragraph reflows rows onto each other.

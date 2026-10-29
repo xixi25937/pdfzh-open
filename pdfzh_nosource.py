@@ -980,6 +980,26 @@ def math_islands(blocks):
         glyphs=[m for m in island['members'] if m['text'].strip(' \uf020')]
         return bool(glyphs) and all(re.match(r'Wingdings|ZapfDingbats',m['font'],re.I) or
                                     (re.match(r'Symbol',m['font'],re.I) and m['text'].strip(' \uf020')=='\uf0b7') for m in glyphs)
+    absorbed=set()
+    def between(a,t):
+        # Punctuation in a text font ("[Z,E,x]^p , [Z,E,x]^q": the comma) standing
+        # between two islands about to merge. It would stay behind inside the
+        # merged box, unerased (37178 p5). The island takes it over; a word there
+        # means the islands are not one formula.
+        l,r=(a['bbox'],t['bbox']) if a['bbox'].x0<=t['bbox'].x0 else (t['bbox'],a['bbox'])
+        found=[]
+        for line in (a['line'],t['line']):
+            for x in line['_items']:
+                if 'members' in x or id(x) in absorbed or not x['text'].strip():continue
+                b=x['bbox']
+                if l.x1-.5<=(b[0]+b[2])/2<=r.x0+.5 and max(l.y0,r.y0)<=(b[1]+b[3])/2<=min(l.y1,r.y1):
+                    if re.search(r'\w',x['text']):return None
+                    found.append(x)
+        return found
+    def take(island,other,gap):
+        island['members']=island['members']+other['members']+gap;island['bbox']|=other['bbox'];island['strong']=island['strong'] or other['strong']
+        for x in gap:island['bbox']|=pymupdf.Rect(x['bbox'])
+        absorbed.update(id(x) for x in gap)
     alive=list(candidates)
     row_lines=[l for b in blocks if b['type']==0 for l in b['lines'] if any(s['text'].strip() for s in l['spans'])]
     changed=True
@@ -1000,7 +1020,9 @@ def math_islands(blocks):
                     cy=(a['bbox'].y0+a['bbox'].y1)/2
                     text=[x['bbox'] for x in t['line']['_items'] if 'members' not in x and re.search(r'\w',x['text'])]
                     if text and not min(b[1] for b in text)-a['size']*.3<=cy<=max(b[3] for b in text)+a['size']*.3:continue
-                t['members']=t['members']+a['members'];t['bbox']|=a['bbox'];t['strong']=t['strong'] or a['strong']
+                gap=between(a,t)
+                if gap is None:continue
+                take(t,a,gap)
                 a['merged']=True;alive.remove(a);changed=True;break
             if changed:break
     # A numerator and denominator in different PDF lines, stacked over the
@@ -1034,7 +1056,9 @@ def math_islands(blocks):
                 # Same row: baselines agree. A sub/superscript of a different
                 # row was already attached above.
                 if abs(a['baseline']-t['baseline'])>min(a['size'],t['size'])*.3:continue
-                a['members']=a['members']+t['members'];a['bbox']|=t['bbox'];a['strong']=a['strong'] or t['strong']
+                gap=between(a,t)
+                if gap is None:continue
+                take(a,t,gap)
                 t['merged']=True;alive.remove(t);changed=True;break
             if changed:break
     # Formulas without prose on their row (display equations) stay original.
@@ -1067,7 +1091,9 @@ def math_islands(blocks):
             if items is None:continue
             spans=[]
             for x in items:
-                if 'members' not in x:spans.append(x);continue
+                if 'members' not in x:
+                    if id(x) not in absorbed:spans.append(x)
+                    continue
                 if x.get('merged'):continue
                 if not x['strong']:spans.extend(x['members']);continue
                 first,last=x['members'][0]['text'],x['members'][-1]['text']
