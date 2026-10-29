@@ -1,15 +1,7 @@
 @echo off
-REM ============================================================
-REM  pdfzh.cmd - PDF 中英对照翻译工具一键启动器
-REM
-REM  用法：
-REM      pdfzh.cmd 论文.pdf
-REM      pdfzh.cmd 论文.pdf --pages 1-5
-REM      pdfzh.cmd --help
-REM
-REM  默认使用 BabelDOC 0.6.4 本地排版 + DeepSeek 翻译。
-REM  版面分析、字体、拼版和质检均在本机运行。
-REM ============================================================
+REM pdfzh.cmd - PDF English-to-Chinese launcher. Usage: pdfzh.cmd paper.pdf / doctor / configure / results
+REM Keep every line above "chcp 65001" ASCII: cmd parses them in the OEM code page (936),
+REM and UTF-8 Chinese there can swallow line breaks and run comment text as a command.
 setlocal
 chcp 65001 >nul
 set PYTHONIOENCODING=utf-8
