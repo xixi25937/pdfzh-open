@@ -617,6 +617,25 @@ class NativeTests(unittest.TestCase):
         self.assertTrue(all(not(i['bbox'][0]<290 and i['bbox'][2]>292) for i in islands))
         self.assertEqual([l['bbox'][2] for l in body['lines']],[289])
 
+    def test_computer_modern_prose_rows_do_not_merge_into_neighbour_row(self):
+        # 37297 p6: a paper whose body text is CMR10 (a "weak" math font) has
+        # rows with no text-font span; each became a detached-formula island and
+        # the row under a script-size "end" was absorbed into the row above, so
+        # "other thread does." came before "end). We prove ..." in the source.
+        def sp(t,font,size,x0,x1,y0,y1):
+            return {'text':t,'font':font,'size':size,'flags':0,'color':0,'bbox':(x0,y0,x1,y1),'origin':(x0,y1-2)}
+        a={'bbox':(375.3,389.9,557.7,402),'dir':(1,0),'spans':[
+            sp('end','CMR7',7,375.3,387.6,395.1,402),sp(').','CMR10',10,388.1,394.8,389.9,399.9),
+            sp(' We prove that ','CMR10',10,394.8,465.1,389.9,399.9),sp(' T','CMMI10',10,465.1,475,389.9,399.9),
+            sp('k','CMMI7',7,475,479.2,393.7,400.7),sp(' claims and no','CMR10',10,479.2,557.7,389.9,399.9)]}
+        b={'bbox':(306.6,401.9,386.1,411.8),'dir':(1,0),'spans':[sp('other thread does.','CMR10',10,306.6,386.1,401.9,411.8)]}
+        blocks=[{'type':0,'bbox':(306.6,389.9,557.7,411.8),'lines':[a,b]}]
+        app.math_islands(blocks)
+        text=[''.join(s['text'] for s in l['spans']) for l in blocks[0]['lines']]
+        self.assertEqual(len(text),2)
+        self.assertEqual(text[1],'other thread does.')
+        self.assertNotIn('other',text[0])
+
     def test_not_slash_fuses_with_following_relation(self):
         # 37297 p6: "Tk' \not= Tk" is a zero-width CMSY slash, a space glyph, then
         # "="; the loose slash stayed after Tk' and the translation showed "=".
