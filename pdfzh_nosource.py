@@ -509,6 +509,9 @@ def expand_text_operators(operations):
     return result
 
 
+ZERO_SPACING=re.compile(rb'(^|[\s\]>)])[-+]?0*\.?0+\s+(Tc|Tw)\b')
+
+
 def normalized_document(pdf):
     writer=PdfWriter(clone_from=str(pdf))
     for page in writer.pages:
@@ -517,7 +520,20 @@ def normalized_document(pdf):
             stream.operations=expand_text_operators(stream.operations)
             page.replace_contents(stream)
     buffer=BytesIO();writer.write(buffer)
-    return pymupdf.open(stream=buffer.getvalue(),filetype='pdf')
+    doc=pymupdf.open(stream=buffer.getvalue(),filetype='pdf')
+    # MuPDF's redaction rewrite drops "0 Tc"/"0 Tw" as defaults, so a
+    # spacing set earlier on the page leaks into the next text (ACS712 p11:
+    # the page number's -0.074 Tc shifted the whole footer form). A tiny
+    # non-zero value is kept and draws the same.
+    # ponytail: regex on raw streams; "...1 0 Tc" inside a malformed operand list would also match.
+    contents={x for p in doc for x in p.get_contents()}
+    for xref in range(1,doc.xref_length()):
+        if not doc.xref_is_stream(xref):continue
+        if xref not in contents and doc.xref_get_key(xref,'Subtype')[1]!='/Form':continue
+        stream=doc.xref_stream(xref)
+        fixed=ZERO_SPACING.sub(rb'\g<1>0.00001 \2',stream)
+        if fixed!=stream:doc.update_stream(xref,fixed)
+    return doc
 
 
 def retained_position_errors(source,background,slots):
@@ -525,7 +541,8 @@ def retained_position_errors(source,background,slots):
     positions=defaultdict(list)
     # A zero-width combining overlay (the slash of ≠) may be re-attached to
     # another word after redaction; it is not a moved glyph.
-    def key(t):return ''.join(c for c in t if not unicodedata.combining(c))
+    # A soft hyphen re-extracts as "-" after any redaction (ACS712 p10).
+    def key(t):return ''.join(c for c in t if not unicodedata.combining(c)).replace('\xad','-')
     for w in background.get_text('words'):positions[key(w[4])].append(w[:4])
     def chars(page,rect):
         return [(c['c'],c['bbox']) for b in page.get_text('rawdict',clip=rect+(-1,-1,1,1))['blocks'] if b['type']==0
@@ -538,7 +555,7 @@ def retained_position_errors(source,background,slots):
         # Text drawn twice at one spot (fill + stroke figure labels) is
         # re-grouped into one word after any redaction; judge by glyphs.
         rect=pymupdf.Rect(word[:4]);after=chars(background,rect);before=chars(source,rect)
-        if before and all(any(c==d and max(abs(a-b) for a,b in zip(box,other))<.5 for d,other in after) for c,box in before):continue
+        if before and all(any(key(c)==key(d) and max(abs(a-b) for a,b in zip(box,other))<.5 for d,other in after) for c,box in before):continue
         errors.append({'text':word[4],'bbox':list(word[:4])})
     return errors
 
@@ -1110,7 +1127,9 @@ def blocks_for_page(page,regions):
         # Type3 fonts without usable Unicode maps may encode glyphs as C0/C1
         # controls (including tabs/newlines); these are not readable prose.
         raw_spans=[s for line in lines for s in line['spans']]
-        if any(any(unicodedata.category(c)=='Cc' for c in s['text']) for s in raw_spans):
+        # Tab/CR/LF are layout whitespace (InDesign "▪\t" bullets, titles
+        # with "\n"), not unmapped glyphs; real Type3 garbage uses other codes.
+        if any(any(unicodedata.category(c)=='Cc' and c not in '\t\n\r' for c in s['text']) for s in raw_spans):
             retained.append({'kind':'unmapped_glyph','bbox':list(rect),
                 'text':''.join(s['text'] for s in raw_spans),
                 'reason':'原 PDF 字体映射含控制字符，保留原始图形，不发送乱码翻译'})

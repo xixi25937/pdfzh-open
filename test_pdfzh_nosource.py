@@ -542,6 +542,48 @@ class NativeTests(unittest.TestCase):
         # Glyphs that really moved are still reported.
         self.assertTrue(app.retained_position_errors(source,page([(*box,'RoIAlignRoIAlign')],dy=3),[]))
 
+    def test_soft_hyphen_reextracted_as_dash_is_not_a_shift(self):
+        # ACS712 p10: "operat\xad" comes back as "operat-" after any redaction.
+        box=(36,100,80,110)
+        def page(word):
+            raw={'blocks':[{'type':0,'lines':[{'spans':[{'chars':[{'c':word[-1],'bbox':(76,100,80,110)}]}]}]}]}
+            return SimpleNamespace(get_text=lambda kind,**k:[(*box,word)] if kind=='words' else raw)
+        self.assertEqual(app.retained_position_errors(page('operat\xad'),page('operat-'),[]),[])
+
+    def test_tab_and_newline_are_not_unmapped_glyphs(self):
+        # ACS712 p1: InDesign bullets are "▪\t", titles carry "\n".
+        with pymupdf.open() as d:
+            p=d.new_page()
+            line={'bbox':(54,145,300,158),'dir':(1,0),'spans':[
+                {'text':'▪\t','font':'ArialMT','size':10,'bbox':(54,145,62,158),'flags':0,'color':0,'origin':(54,156)},
+                {'text':'Low-noise analog signal path for current sensing','font':'ArialMT','size':10,'bbox':(62,145,300,158),'flags':0,'color':0,'origin':(62,156)}]}
+            with patch.object(p,'get_text',side_effect=lambda kind,**k:{'blocks':[{'type':0,'bbox':line['bbox'],'lines':[line]}]} if kind=='dict' else []):
+                slots,retained=app.blocks_for_page(p,[])
+            self.assertEqual([r['kind'] for r in retained if r['kind']=='unmapped_glyph'],[])
+            self.assertEqual(len(slots),1)
+
+    def test_zero_spacing_survives_redaction_rewrite(self):
+        # ACS712 p11: the footer form resets "0 Tc", which MuPDF's redaction
+        # rewrite drops as a default, so the page number's -0.074 Tc leaked
+        # into the form and every footer word moved.
+        with tempfile.TemporaryDirectory() as t:
+            path=Path(t)/'a.pdf'
+            with pymupdf.open() as d:
+                p=d.new_page(width=300,height=200);p.insert_text((10,10),'x')
+                fx,_,_,_,font,*_=p.get_fonts()[0]
+                form=d.get_new_xref()
+                d.update_object(form,f'<</Type/XObject/Subtype/Form/BBox[0 0 300 200]/Resources<</Font<</{font} {fx} 0 R>>>>>>')
+                d.update_stream(form,f'BT /{font} 10 Tf 0 Tc 50 50 Td (Allegro MicroSystems Road) Tj ET'.encode())
+                d.update_stream(p.get_contents()[0],f'BT /{font} 10 Tf -2 Tc 50 150 Td (11) Tj ET q /Fm0 Do Q'.encode())
+                d.xref_set_key(p.xref,'Resources',f'<</Font<</{font} {fx} 0 R>>/XObject<</Fm0 {form} 0 R>>>>')
+                d.save(path)
+            def words(pg):return [round(w[2],1) for w in pg.get_text('words') if w[1]>100]
+            with pymupdf.open(path) as src:before=words(src[0])
+            doc=app.normalized_document(path);page=doc[0]
+            page.add_redact_annot(pymupdf.Rect(200,40,200.2,40.2),fill=None)
+            page.apply_redactions(images=0,graphics=0,text=0)
+            self.assertEqual(words(page),before)
+
     def test_rotated_stamp_survives_body_erasure(self):
         # 37297 p1: the arXiv side stamp overlaps a narrow left margin; erasing
         # body lines removed its "27"/"2026" and the page check blamed them.
