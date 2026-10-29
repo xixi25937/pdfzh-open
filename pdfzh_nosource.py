@@ -916,8 +916,17 @@ def math_islands(blocks):
     def orphan(island):
         # Trailing punctuation ("2n ,") does not make a row prose.
         return all('members' in x or not re.search(r'\w',x['text']) for x in island['line']['_items'])
+    def lineno(island,other):
+        # Script-size digits opening their PDF line: "13", "17 Function".
+        first=island['members'][0]
+        lead=next((s for s in island['line']['spans'] if s['text'].strip()),None)
+        return lead is first and re.fullmatch(r'\d{1,3}',first['text'].strip() or '-') is not None and first['size']<other['size']*.85
     def near(a,b):
         ra,rb=a['bbox'],b['bbox']
+        # An algorithm line number never joins what lies left of it across
+        # a gap (37297 p4: body formula "P" at x=289 took "17" at x=293).
+        left,right=(a,b) if ra.x0<=rb.x0 else (b,a)
+        if left['line'] is not right['line'] and lineno(right,left) and right['bbox'].x0-left['bbox'].x1>2:return False
         if (ra+(-.5,-.5,.5,.5)).intersects(rb):return True
         h=min(ra.height,rb.height);overlap=min(ra.y1,rb.y1)-max(ra.y0,rb.y0)
         # Up to a math space around a binary operator ("x/m + y/n" in 7pt

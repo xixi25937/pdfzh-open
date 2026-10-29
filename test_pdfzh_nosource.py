@@ -561,6 +561,20 @@ class NativeTests(unittest.TestCase):
             app.restore_rotated(page,src[0],slots)
             self.assertEqual(stamp(page),['arXiv:2610.37297v1 27 Oct 2026'])
 
+    def test_islands_do_not_join_across_gutter_into_another_block(self):
+        # 37297 p4: a body formula "P" ending at x=289 absorbed the algorithm
+        # box line number "17" at x=293 (another block), so the body paragraph
+        # read "17 Function FollowContour..." and failed the number check.
+        def span(text,font,size,x0,x1,y0=332,y1=342):
+            return {'text':text,'font':font,'size':size,'bbox':(x0,y0,x1,y1),'origin':(x0,y1-2),'flags':0,'color':0}
+        body={'type':0,'bbox':(38,332,289,342),'lines':[{'bbox':(38,332,289,342),'dir':(1,0),'spans':[
+            span('neighbor is labeled ','CMR10',10,38,280),span('P','CMMI10',10,280,289)]}]}
+        algo={'type':0,'bbox':(293,330,516,341),'lines':[{'bbox':(293,330,516,341),'dir':(1,0),'spans':[
+            span('17','CMBX7',7,293,302,333,340),span(' Function FollowContour','CMBX10',10,302,400),span('P','CMMI10',10,400,410)]}]}
+        islands=app.math_islands([body,algo])
+        self.assertTrue(all(not(i['bbox'][0]<290 and i['bbox'][2]>292) for i in islands))
+        self.assertEqual([l['bbox'][2] for l in body['lines']],[289])
+
     def test_pseudo_code_rows_stay_separate_slots(self):
         # Adam p2: each Require/step row of Algorithm 1 must keep its own line
         # and box; merging them into one paragraph reflows rows onto each other.
