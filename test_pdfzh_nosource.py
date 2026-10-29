@@ -1017,5 +1017,32 @@ class NativeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'不完整'):app.check_complete(cut)
             with self.assertRaisesRegex(ValueError,'不完整'):app.main([str(cut),'--outdir',str(Path(t)/'o'),'--offline'])
 
+    def test_references_stay_english_but_appendix_is_translated(self):
+        with pymupdf.open() as d:
+            p=d.new_page(width=600,height=800)
+            for k in range(12):p.insert_text((50,200+k*12),'Body prose line number with plenty of ordinary words in it.',fontsize=10)
+            p.insert_text((50,400),'References',fontsize=10)
+            p.insert_text((50,430),'Our method follows the references listed below closely.',fontsize=10)
+            p.insert_text((50,500),'References',fontsize=12,fontname='hebo')
+            p.insert_text((50,530),'[1] Faye Y Wu and H Harry Asada. Hold and grasp. In ICRA, 2024.',fontsize=9)
+            p.insert_text((50,545),'A',fontsize=9)
+            p.insert_text((50,560),'[2] Kaiming He, Xiangyu Zhang. Deep residual learning. CVPR 2016.',fontsize=9)
+            q=d.new_page(width=600,height=800)
+            q.insert_text((50,60),'[3] Diederik Kingma and Jimmy Ba. Adam: a method. ICLR 2015.',fontsize=9)
+            q.insert_text((50,100),'A. Additional Details',fontsize=12,fontname='hebo')
+            q.insert_text((50,130),'The appendix explains the training setup in more detail here.',fontsize=10)
+            ranges=app.references_ranges(d)
+            self.assertEqual(len(ranges),1)
+            def inside(pi,y):return app.in_references(ranges,pi,pymupdf.Rect(50,y-8,300,y),600)
+            self.assertFalse(inside(0,430) or inside(0,300))
+            self.assertTrue(inside(0,530) and inside(0,560) and inside(1,60))
+            self.assertFalse(inside(1,130))
+        # Without a year on its lines a "References" contents entry is no list.
+        with pymupdf.open() as d:
+            p=d.new_page(width=600,height=800)
+            p.insert_text((50,100),'References',fontsize=12,fontname='hebo')
+            for k in range(8):p.insert_text((50,130+k*14),'Section heading of the table of contents',fontsize=10)
+            self.assertEqual(app.references_ranges(d),[])
+
 
 if __name__=='__main__':unittest.main()

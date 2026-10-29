@@ -408,7 +408,7 @@ def untranslated_candidates(document,plan):
                 text=body_text([line]);rect=pymupdf.Rect(line['bbox'])
                 if not prose(text):continue
                 if re.search(r'[\u4e00-\u9fff]',text):continue
-                if any(r['kind']=='page_furniture' and (rect.tl+rect.br)/2 in pymupdf.Rect(r['bbox'])
+                if any(r['kind'] in ('page_furniture','references') and (rect.tl+rect.br)/2 in pymupdf.Rect(r['bbox'])
                        for r in plan['pages'][i]['retained']):continue
                 found.append({'page':i+1,'bbox':list(rect),'text':text})
     return found
@@ -443,6 +443,7 @@ def body_coverage(source,plan,valid,layout):
                 for s in l['spans']:sizes[round(s['size'],1)]+=len(s['text'].strip())
                 r=pymupdf.Rect(l['bbox']);c=(r.tl+r.br)/2
                 if len(re.findall(r'[A-Za-z]{2,}',text))<4 or (regions is not None and not any(c in g for g in regions)):continue
+                if in_references(plan.get('references',[]),i,r,page.rect.width):continue
                 rows.append((i,c,text,Counter(round(s['size'],1) for s in l['spans'] for _ in s['text'].strip()).most_common(1)[0][0]))
     if not sizes:return {'body_font':None,'body_chars':0,'coverage':1.0,'untranslated_body':[]}
     body=sizes.most_common(1)[0][0]
@@ -1255,6 +1256,57 @@ def blocks_for_page(page,regions):
     return final,retained
 
 
+REFERENCES_HEAD=re.compile(r'(?:\d+\.?|[IVX]+\.)?\s*(?:References|REFERENCES|R\s?EFERENCES|Bibliography|BIBLIOGRAPHY|Literature Cited|LITERATURE CITED)')
+AFTER_REFERENCES=re.compile(r'\(?(?:Appendix|APPENDIX|Appendices|APPENDICES|Supplementary|SUPPLEMENTARY|Supplemental|SUPPLEMENTAL)\b|'
+                            r'(?:NeurIPS Paper )?Checklist\b|CHECKLIST\b|[A-Z](?:\.\s*[A-Z]|\s+[A-Z]|$)|\d+\.?\s+[A-Z][a-z]')
+CAPTION=re.compile(r'(?:Fig\.|Figure|FIGURE|Table|TABLE|Algorithm)\s*\d')
+
+
+def reading_key(i,rect,width):
+    """(page, column, y) reading order; a two-column page reads left first."""
+    return [i,int(rect.x0>=width/2),(rect.y0+rect.y1)/2]
+
+
+def references_ranges(document):
+    """Reading-order spans [start, end) of reference lists: from a References /
+    Bibliography heading to the next top-level heading (Appendix, "A." ...,
+    Supplementary, Checklist) or the end. User 2026-10-29: references may stay
+    English, appendices after them are translated. A heading is a whole line
+    at least body size, bold or upper case; "references" inside a sentence and
+    small drawing labels (PCA9685 package pages, 6.8pt) are not."""
+    sizes=Counter();lines=[]
+    for i,page in enumerate(document):
+        for b in page.get_text('dict')['blocks']:
+            for l in b.get('lines',[]):
+                spans=[s for s in l['spans'] if s['text'].strip()]
+                if not spans:continue
+                for s in spans:sizes[round(s['size'],1)]+=len(s['text'].strip())
+                lines.append((i,pymupdf.Rect(l['bbox']),''.join(s['text'] for s in l['spans']).strip(),max(s['size'] for s in spans),
+                              any(styles.style(s)['bold'] for s in spans),page.rect.width))
+    if not sizes:return []
+    body=sizes.most_common(1)[0][0]
+    lines.sort(key=lambda x:reading_key(x[0],x[1],x[5]))
+    ranges=[];head=None
+    for i,r,text,size,bold,w in lines:
+        if head is None:
+            if size>=body-1 and (bold or text.isupper() or size>body+.5) and REFERENCES_HEAD.fullmatch(text):
+                head=size;ranges.append([[i,int(r.x0>=w/2),r.y1],[len(document),0,0]])
+        # A lone capital is an initial ("Faye Y Wu") unless bold or larger.
+        elif size>=head-.3 and (bold or size>body+.5 or text.isupper() and len(text)>1) and (AFTER_REFERENCES.match(text) or size>head+1):
+            ranges[-1][1]=reading_key(i,r,w)[:2]+[r.y0];head=None
+    # A table-of-contents line "References" is followed by headings, not by
+    # entries: a real list has a year on most of its lines.
+    def entries(a,b):
+        inside=[t for i,r,t,*_,w in lines if a<reading_key(i,r,w)<b]
+        return inside and sum(bool(re.search(r'\b(?:19|20)\d\d\b',t)) for t in inside)>=.05*len(inside)
+    return [x for x in ranges if entries(*x)]
+
+
+def in_references(ranges,i,rect,width):
+    k=reading_key(i,rect,width)
+    return any(a<k<b for a,b in ranges)
+
+
 def prepare(pdf,out):
     layout_path=out/'layout.json'; sha=hashlib.sha256(pdf.read_bytes()).hexdigest()
     layout=json.loads(layout_path.read_text(encoding='utf8')) if layout_path.exists() else {}
@@ -1263,6 +1315,7 @@ def prepare(pdf,out):
         layout=json.loads(layout_path.read_text(encoding='utf8'))
     pages=[]
     with pymupdf.open(pdf) as document:
+        refs=references_ranges(document)
         for i,page in enumerate(document):
             if len(page.get_text().strip())<20:
                 # Blank/image-only pages (covers, scans) are passed through
@@ -1272,11 +1325,15 @@ def prepare(pdf,out):
                 print(f'[结构] {i+1}/{len(document)} 页：无文字层，原样保留',flush=True)
                 continue
             slots,retained=blocks_for_page(page,layout['pages'][i]['regions'])
+            for s in [s for s in slots if in_references(refs,i,pymupdf.Rect(s['bbox']),page.rect.width)]:
+                slots.remove(s)
+                retained.append({'kind':'references','bbox':s['bbox'],'text':s['source'],'reason':'参考文献保留原文'})
             pages.append({'width':page.rect.width,'height':page.rect.height,'slots':slots,'retained':retained})
             print(f'[结构] {i+1}/{len(document)} 页：{len(slots)} 个可排版文本框，{len(retained)} 个明确保留项',flush=True)
     if all(r['kind']=='no_text_layer' for p in pages for r in p['retained']) and not any(p['slots'] for p in pages):
         raise ValueError('整份 PDF 没有文字层（扫描件）；本入口尚未接入 OCR，不生成伪完整译文。')
-    plan={'source_sha256':sha,'source':str(pdf),'pages':pages}
+    plan={'source_sha256':sha,'source':str(pdf),'pages':pages,'references':refs}
+    if refs:print(f'[结构] 参考文献 {len(refs)} 处保留原文（第 '+'、'.join(f'{a[0]+1}–{min(b[0]+1,len(pages))}' for a,b in refs)+' 页）',flush=True)
     unmapped=sum(r['kind']=='unmapped_glyph' for p in pages for r in p['retained'])
     if unmapped:print(f'[文字检查] {unmapped} 个区域存在字体映射异常，保留原文；需 OCR 才能可靠翻译，不发送乱码消费额度',flush=True)
     latex.write_json(out/'structure.json',plan)

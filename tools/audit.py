@@ -58,7 +58,7 @@ def structural_english(text):
 
 
 RETAINED_KINDS = {'figure_text', 'formula', 'page_furniture', 'identical_translation',
-                  'fraction', 'protected_region_text', 'retained_text_collision'}
+                  'fraction', 'protected_region_text', 'retained_text_collision', 'references'}
 
 
 def retained_zones(qa, page_no, half):
