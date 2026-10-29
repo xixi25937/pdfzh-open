@@ -122,6 +122,13 @@ class NativeTests(unittest.TestCase):
         blocks=build('\uf0b7\uf020');islands=app.math_islands(blocks)
         self.assertEqual(len(islands),1)
         self.assertTrue(app.starts_bullet(blocks[0]['lines'][0]))
+        # The translation keeps the bullet's tab stop (12pt = 1.5 em) instead of
+        # starting right after the bullet (k17: items misaligned with kept ones).
+        isl={**islands[0],'page':1}
+        self.assertAlmostEqual(isl['after'],(73.3-61.2)/8,places=2)
+        tex=app.island_escape({'islands':[isl]})(chr(app.ISLAND_BASE)+' 输出电压精度')
+        self.assertIn(r'\hskip'+f'{isl["after"]:.4f}'+r'\slotfont',tex)
+        self.assertNotIn(r'\hskip.2em',tex)
         # Another Symbol glyph at the same distance (a detached formula) stays out.
         self.assertEqual(app.math_islands(build('\uf057')),[])
 

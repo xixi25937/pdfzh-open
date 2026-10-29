@@ -124,8 +124,12 @@ def island_escape(s):
                 gap=r'\hskip.2em\relax '
                 if i and is_hanzi(value[i-1]):out.append(gap)
                 out.append(r'\pdfzhisland{'+str(isl['page'])+'}{'+f'{h:.4f}'+'}{'+f'{d:.4f}'+'}')
-                if i+1<len(value) and is_hanzi(value[i+1]):out.append(gap)
                 start=i+1
+                if 'after' in isl:
+                    # A list bullet keeps its source gap (tab stop) to the item text.
+                    out.append(r'\hskip'+f'{isl["after"]:.4f}'+r'\slotfont\relax ')
+                    while start<len(value) and value[start]==' ':start+=1
+                elif i+1<len(value) and is_hanzi(value[i+1]):out.append(gap)
         out.append(tex_escape(value[start:]))
         return ''.join(out)
     return escape
@@ -960,6 +964,8 @@ def math_islands(blocks):
         if row:
             prose_span=max((s for s in row['spans'] if s['text'].strip()),key=lambda s:s['size'])
             a['size']=prose_span['size'];a['baseline']=prose_span['origin'][1]
+            # Keep the bullet's tab stop: the translation would start right after it.
+            if bullet(a) and row['bbox'][0]>a['bbox'].x1:a['after']=(row['bbox'][0]-a['bbox'].x1)/a['size']
         elif orphan(a):a['strong']=False
     result=[]
     for b in blocks:
@@ -984,7 +990,8 @@ def math_islands(blocks):
                               'dingbat':bullet(x)})
                 if trail:spans.append({**neighbour,'text':trail,'bbox':(x['bbox'].x1,x['bbox'].y0,x['bbox'].x1,x['bbox'].y1)})
                 result.append({'bbox':list(x['bbox']),'baseline':x['baseline'],'size':x['size'],
-                               'members':[list(m['bbox']) for m in x['members']]})
+                               'members':[list(m['bbox']) for m in x['members']],
+                               **({'after':round(x['after'],4)} if 'after' in x else {})})
                 line['bbox']=tuple(pymupdf.Rect(line['bbox'])|x['bbox'])
             line['spans']=spans
             if spans and not any(s['text'].strip() for s in spans):line['spans']=[]
