@@ -76,7 +76,10 @@ def doctor():
         if not found:missing.append(name)
     print('密钥: '+('已配置（未联网验证）' if user.api_key() else '未配置'))
     if missing:raise RuntimeError('依赖缺少，请双击 install.cmd。')
-    print('[检查] 重排模式本地依赖可用；TeX Live 仅用于 --mode original。版面模型首次使用时下载。')
+    if all(shutil.which(n) for n in ('xelatex','latexmk','fc-match')):
+        print('[检查] Python 依赖和 TeX Live 都可用，将使用默认的 original 模式（版式与原文一致）。版面模型首次使用时下载。')
+    else:
+        print('[检查] 未找到 TeX Live（xelatex/latexmk/fc-match），默认的 original 模式需要它；现在会自动改用 reflow 模式（版式与原文不同）。安装 TeX Live 后可获得与原文一致的版式。版面模型首次使用时下载。')
 
 
 def main(argv=None):

@@ -66,6 +66,15 @@ class UserTests(unittest.TestCase):
             self.assertIn('未找到 TeX Live',output.getvalue())
             self.assertEqual(output.getvalue().count('未找到 TeX Live'),1)
 
+    def test_doctor_hint_matches_tex_availability(self):
+        for tex,expected in ((True,'将使用默认的 original 模式'),(False,'自动改用 reflow 模式')):
+            output=StringIO()
+            with patch.object(cli.shutil,'which',return_value='tex' if tex else None), \
+                 patch.object(user,'api_key',return_value=None),redirect_stdout(output):
+                cli.doctor()
+            self.assertIn(expected,output.getvalue().splitlines()[-1])
+            self.assertNotIn('仅用于',output.getvalue())
+
     def test_missing_translation_does_not_recommend_offline_as_a_fix(self):
         with tempfile.TemporaryDirectory() as folder:
             pdf=Path(folder)/'demo.pdf';pdf.write_bytes(b'fake%%EOF');output=StringIO()
