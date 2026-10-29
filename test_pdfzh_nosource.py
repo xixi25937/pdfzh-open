@@ -542,6 +542,25 @@ class NativeTests(unittest.TestCase):
         # Glyphs that really moved are still reported.
         self.assertTrue(app.retained_position_errors(source,page([(*box,'RoIAlignRoIAlign')],dy=3),[]))
 
+    def test_rotated_stamp_survives_body_erasure(self):
+        # 37297 p1: the arXiv side stamp overlaps a narrow left margin; erasing
+        # body lines removed its "27"/"2026" and the page check blamed them.
+        def build():
+            d=pymupdf.open();p=d.new_page(width=300,height=400)
+            p.insert_text((40,380),'arXiv:2610.37297v1 27 Oct 2026',fontsize=20,rotate=90)
+            for y in range(60,380,12):p.insert_text((43,y),'limited by their sequential nature',fontsize=10)
+            return d
+        stamp=lambda pg:[''.join(s['text'] for s in l['spans']) for b in pg.get_text('dict')['blocks']
+                         for l in b.get('lines',[]) if l['dir']!=(1.0,0.0)]
+        with build() as d,build() as src:
+            page=d[0]
+            slots=[{'bbox':list(l['bbox'])} for b in page.get_text('dict')['blocks'] for l in b['lines'] if l['dir']==(1.0,0.0)][5:10]
+            for s in slots:page.add_redact_annot(app.erase_core(s['bbox']),fill=None)
+            page.apply_redactions(images=0,graphics=0,text=0)
+            self.assertNotEqual(stamp(page),['arXiv:2610.37297v1 27 Oct 2026'])
+            app.restore_rotated(page,src[0],slots)
+            self.assertEqual(stamp(page),['arXiv:2610.37297v1 27 Oct 2026'])
+
     def test_pseudo_code_rows_stay_separate_slots(self):
         # Adam p2: each Require/step row of Algorithm 1 must keep its own line
         # and box; merging them into one paragraph reflows rows onto each other.

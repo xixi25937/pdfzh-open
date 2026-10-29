@@ -543,6 +543,30 @@ def retained_position_errors(source,background,slots):
     return errors
 
 
+def restore_rotated(page,source,slots):
+    """Redraw retained rotated lines (the arXiv side stamp) that slot erasure
+    hit: a narrow margin puts body glyphs inside the stamp's glyph boxes, so
+    every redaction strip also removes stamp digits. The stamp is cleared and
+    copied from the source, clipped to the side of it free of horizontal text."""
+    lines=[l for b in source.get_text('dict')['blocks'] for l in b.get('lines',[])]
+    flat=[pymupdf.Rect(l['bbox']) for l in lines if l['dir']==(1.0,0.0)]
+    boxes=[pymupdf.Rect(s['bbox']) for s in slots]
+    for l in lines:
+        r=pymupdf.Rect(l['bbox'])
+        if abs(l['dir'][0])>.01 or any(b.contains((r.tl+r.br)/2) for b in boxes) or not any(r.intersects(b) for b in boxes):continue
+        clip=pymupdf.Rect(r)
+        for f in flat:
+            if f.intersects(r):
+                if (f.x0+f.x1)/2>(r.x0+r.x1)/2:clip.x1=min(clip.x1,f.x0-.2)
+                else:clip.x0=max(clip.x0,f.x1+.2)
+        if clip.width<.5*r.width:continue
+        page.add_redact_annot(clip,fill=None)
+        page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE,
+            graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,text=pymupdf.PDF_REDACT_TEXT_REMOVE)
+        page.show_pdf_page(clip,source.parent,source.number,clip=clip)
+# ponytail: vertical lines only; a horizontal stamp over body text would need a y-clip.
+
+
 def redacted_copy(doc,pi,slots,_single={}):
     # One-page extract cached per document page: insert_pdf of a large
     # document is the slow part, reopening the bytes is cheap.
@@ -1602,6 +1626,7 @@ def compile_overlay(pdf,out,plan,cache,*,allow_fallback=True,rounds=0):
                     collisions.append((pi,s))
                 # ponytail: without this zones-exemption the whole paragraph
                 # falls back to English whenever a kept region sits inside it.
+            if info['slots']:restore_rotated(page,original[pi],info['slots'])
             errors=retained_position_errors(original[pi],page,info['slots'])
             if errors:position_errors.append({'page':pi+1,'changed_words':errors})
         latex.write_json(out/'background-qa.json',{'retained_position_errors':position_errors})
