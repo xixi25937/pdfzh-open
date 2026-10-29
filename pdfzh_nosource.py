@@ -1146,6 +1146,71 @@ def math_islands(blocks):
     return result
 
 
+def stack_blocks(blocks):
+    """Rejoin the one-line blocks MuPDF cuts out of loosely spaced text.
+
+    1.5-spaced preprints get a new block per line, so every line became its
+    own slot and sentences were translated in pieces. Consecutive blocks join
+    when the next row has the same size, a constant loose baseline
+    pitch (1.4 to 2.3 lines; MuPDF keeps tighter lines in one block) and the
+    stack's left edge, and the row before it was full (the next row's first
+    word would not have fitted on it). A short row (heading, last line of a
+    paragraph) closes the stack, so paragraph_parts only splits at an indent."""
+    def rows(b):
+        if b['type']!=0:return None
+        lines=[l for l in b['lines'] if any(s['text'].strip() for s in l['spans'])]
+        if not lines or any(tuple(l.get('dir',(1,0)))!=(1,0) for l in lines):return None
+        result=[]
+        for r in visual_rows(lines):
+            d=max((s for s in r['spans'] if s['text'].strip()),key=lambda s:len(s['text']))
+            # Width of the row's first word: whether it would have fitted on
+            # the row above decides if that row ended by wrapping.
+            first=next(s for s in r['spans'] if s['text'].strip());text=first['text'].strip()
+            word=(first['bbox'][2]-first['bbox'][0])*len(text.split()[0])/max(len(first['text']),1)
+            result.append((r['bbox'][0],r['bbox'][2],d['origin'][1],d['size'],word))
+        return result
+    infos=[rows(b) for b in blocks]
+    # Only a page that MuPDF cut into mostly one-line blocks: elsewhere the
+    # blocks it makes are paragraphs and joining neighbours would re-cut them.
+    wide=[i for i in infos if i and any(r[1]-r[0]>=15*r[3] for r in i)]
+    single=[i for i in wide if len(i)==1]
+    if len(single)<8 or len(single)*2<len(wide):return blocks
+    stacks=[];cur=[]
+    for i,info in enumerate(infos):
+        if info is None:
+            if cur:stacks.append(cur);cur=[]
+            stacks.append([i]);continue
+        if cur:
+            prev=infos[cur[-1]][-1];fs=prev[3];pitch=info[0][2]-prev[2]
+            joined=(abs(info[0][3]-fs)<=.15*fs and 1.4*fs<=pitch<=2.3*fs and
+                    abs(info[0][0]-left)<=1.5*fs and (ref is None or abs(pitch-ref)<=.2*fs))
+            if joined:
+                ref=pitch if len(info)==1 else info[-1][2]-info[-2][2]
+                left=min(left,*(r[0] for r in info));cur.append(i);continue
+            stacks.append(cur)
+        cur=[i];left=min(r[0] for r in info)
+        ref=info[-1][2]-info[-2][2] if len(info)>1 else None
+    if cur:stacks.append(cur)
+    result=[]
+    for st in stacks:
+        right=max((r[1] for i in st if infos[i] for r in infos[i]),default=0)
+        piece=[st[0]]
+        for a,b in zip(st,st[1:]):
+            x0,x1,_,fs,_=infos[a][-1]
+            if x1+.25*fs+infos[b][0][4]>=right-fs and x1-x0>=15*fs:piece.append(b)
+            else:result.append(piece);piece=[b]
+        result.append(piece)
+    merged=[]
+    for piece in result:
+        bs=[blocks[i] for i in piece]
+        if len(bs)>1:
+            box=pymupdf.Rect(bs[0]['bbox'])
+            for b in bs[1:]:box|=pymupdf.Rect(b['bbox'])
+            bs=[{**bs[0],'lines':[l for b in bs for l in b['lines']],'bbox':tuple(box)}]
+        merged.append(bs[0])
+    return merged
+
+
 def blocks_for_page(page,regions):
     tables=[];protected=[];slots=[];retained=[]
     page_blocks=page.get_text('dict')['blocks']
@@ -1183,7 +1248,7 @@ def blocks_for_page(page,regions):
                             'bbox':tuple(pymupdf.Rect(prev['bbox'])|pymupdf.Rect(b['bbox']))}
                 continue
         joined.append(b)
-    page_blocks=joined
+    page_blocks=stack_blocks(joined)
     table_regions=[pymupdf.Rect(r['bbox']) for r in regions if r['kind']=='table' and r['confidence']>=0.6]
     formula_regions=[pymupdf.Rect(r['bbox'])+(-2,-2,2,2) for r in regions if r['kind']=='isolate_formula' and r['confidence']>=0.3]
     fractions=fraction_regions(page)

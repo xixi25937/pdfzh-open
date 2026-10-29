@@ -248,6 +248,30 @@ class NativeTests(unittest.TestCase):
         self.assertEqual(app.body_text(rows[:1]),'The LM35 series')
         self.assertEqual(len(app.paragraph_parts(rows)),1)
 
+    def test_loosely_spaced_lines_become_one_paragraph_slot(self):
+        # At a 1.7 line pitch MuPDF opens a block per line; every line used to
+        # be its own slot and sentences were translated in pieces.
+        words=('Spacecraft-mounted robotic manipulators can support long-term operability of orbiting assets by conducting '
+               'on-orbit assembly and repair. In this context, the integration of continuum robots promises safer operation. '*3).split()
+        rows=[];cur=''
+        for w in words:
+            t=(cur+' '+w).strip()
+            if pymupdf.get_text_length(t,fontsize=10)>200:rows.append(cur);cur=w
+            else:cur=t
+        rows.append(cur)
+        with pymupdf.open() as d:
+            p=d.new_page(width=300,height=600)
+            p.insert_text((50,50),'Abstract',fontsize=10)
+            for i,t in enumerate(rows):p.insert_text((50,50+17*(i+1)),t,fontsize=10)
+            # Short stacked labels (legend entries) are not a paragraph.
+            for i,t in enumerate(['Ours alpha','Base beta','Rand gamma']):p.insert_text((50,500+17*i),t,fontsize=10)
+            slots,_=app.blocks_for_page(p,[])
+        sources=[s['source'] for s in slots]
+        self.assertGreater(len(rows),8)
+        self.assertEqual(sources[0],'Abstract')
+        self.assertEqual(sources[1],' '.join(words))
+        self.assertEqual(sources[2:],['Ours alpha','Base beta','Rand gamma'])
+
     def test_tiny_label_touching_axis_tick_is_retained(self):
         with pymupdf.open() as d:
             p=d.new_page(width=300,height=300)
