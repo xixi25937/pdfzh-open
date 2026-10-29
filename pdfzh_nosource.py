@@ -40,6 +40,7 @@ MATH_FONT=re.compile(r'^(?:CMMI|CMSY|CMEX|CMBSY|MSAM|MSBM|EU[FRS][MB]|RSFS|LMMat
     # Symbol/dingbat fonts map µ, −, °, Ω and bullets to private-use codes.
     r'Symbol(?:MT)?\b|Wingdings|ZapfDingbats)',re.I)
 WEAK_MATH_FONT=re.compile(r'^(?:CMR|CMBX|LMRoman)\d',re.I)
+MATH_OPERATORS=frozenset('log lim max min exp sin cos tan sinh cosh tanh arg sup inf det ker dim deg gcd ref ln lg sgn tr diag softmax argmax argmin limsup liminf var cov'.split())
 SYMBOLIC=re.compile(r'[\s\d=+\-−×·()\[\]{}|,.;:/<>′\'*∗]+')
 NATIVE_TOKEN=re.compile(
     r'[\U000F0000-\U000FFFFD]|'
@@ -904,8 +905,16 @@ def math_islands(blocks):
             # A row of body-size words is prose, not a detached formula row below:
             # as an island it merged into a neighbouring row's island and its
             # glyphs jumped to that line (37297 p6), so it stays plain text.
-            if not sizes and any(WEAK_MATH_FONT.match(s['font']) and s['size']>=body_size*.85 and
-                                 re.search(r'[A-Za-z]{3,}',s['text']) for s in spans):continue
+            # Only a row made of words: a formula row with an operator name
+            # ("log", "lim") or a stray letter run is still a formula (DPO p6:
+            # "r = beta log" became text and "log" was translated as "日志").
+            # (judged over the whole visual row: a PDF may emit one line object per word)
+            if not sizes:
+                cy=(line['bbox'][1]+line['bbox'][3])/2
+                words=[w for l in b['lines'] if abs((l['bbox'][1]+l['bbox'][3])/2-cy)<=4
+                       for s in l['spans'] if WEAK_MATH_FONT.match(s['font']) and s['size']>=body_size*.85
+                       for w in re.findall(r'[A-Za-z]{3,}',s['text']) if w.lower() not in MATH_OPERATORS and not w.isupper()]
+                if len(words)>=2 or any(len(w)>=5 for w in words):continue
             kinds=[math_like(s,prose_size) for s in spans]
             # Script-size math-roman digits split from their partner ("1" over
             # "2" in another PDF line) must stay a formula, not prose digits.

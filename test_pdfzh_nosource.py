@@ -636,6 +636,26 @@ class NativeTests(unittest.TestCase):
         self.assertEqual(text[1],'other thread does.')
         self.assertNotIn('other',text[0])
 
+    def test_computer_modern_formula_row_with_operator_name_stays_island(self):
+        # DPO p6: "r(x,y) = beta log pi/pi_ref" has a body-size CMR10 "log"; that made
+        # the whole row prose, so "log" was sent to the model and came back "日志".
+        # Prose rows from word-per-line PDFs (37043 p2) still stay text.
+        def sp(t,font,size,x0,x1,y0,y1):
+            return {'text':t,'font':font,'size':size,'flags':0,'color':0,'bbox':(x0,y0,x1,y1),'origin':(x0,y1-2)}
+        def line(*spans):
+            return {'bbox':(spans[0]['bbox'][0],spans[0]['bbox'][1],spans[-1]['bbox'][2],spans[0]['bbox'][3]),'dir':(1,0),'spans':list(spans)}
+        prose=line(sp('Theorem 1. Under mild assumptions, all rewards','Times-Roman',10,100,300,100,110))
+        formula=line(sp('r','CMMI10',10,100,106,120,130),sp('=','CMR10',10,108,116,120,130))
+        log=line(sp('log','CMR10',10,118,134,120,130))
+        tail=line(sp('for some model','Times-Roman',10,150,230,120,130))
+        blocks=[{'type':0,'bbox':(100,100,300,130),'lines':[prose,formula,log,tail]}]
+        app.math_islands(blocks)
+        self.assertNotIn('log',''.join(s['text'] for s in blocks[0]['lines'][2]['spans']))
+        words=[line(sp(w,'LMRoman10-Regular',10,100+40*i,130+40*i,120,130)) for i,w in enumerate(['model','for','a','space'])]
+        blocks=[{'type':0,'bbox':(100,100,300,130),'lines':[prose]+words}]
+        app.math_islands(blocks)
+        self.assertEqual([l['spans'][0]['text'] for l in blocks[0]['lines'][1:]],['model','for','a','space'])
+
     def test_not_slash_fuses_with_following_relation(self):
         # 37297 p6: "Tk' \not= Tk" is a zero-width CMSY slash, a space glyph, then
         # "="; the loose slash stayed after Tk' and the translation showed "=".
