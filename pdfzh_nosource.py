@@ -886,6 +886,11 @@ def math_islands(blocks):
         if WEAK_MATH_FONT.match(s['font']) and (s['size']<prose_size*.85 or SYMBOLIC.fullmatch(t)):return 'weak'
         return None
     candidates=[]
+    body=Counter()
+    for b in blocks:
+        for l in b.get('lines',[]):
+            for s in l['spans']:body[round(s['size'],1)]+=len(s['text'].strip())
+    body_size=body.most_common(1)[0][0] if body else 10
     for b in blocks:
         if b['type']!=0:continue
         for line in b['lines']:
@@ -895,6 +900,12 @@ def math_islands(blocks):
                 if s['text'].strip() and not MATH_FONT.match(s['font']) and not WEAK_MATH_FONT.match(s['font']):
                     sizes[round(s['size'],2)]+=len(s['text'])
             prose_size=sizes.most_common(1)[0][0] if sizes else max((s['size'] for s in spans),default=10)
+            # A paper typeset in Computer Modern sets its prose in CMR10/CMBX10 too.
+            # A row of body-size words is prose, not a detached formula row below:
+            # as an island it merged into a neighbouring row's island and its
+            # glyphs jumped to that line (37297 p6), so it stays plain text.
+            if not sizes and any(WEAK_MATH_FONT.match(s['font']) and s['size']>=body_size*.85 and
+                                 re.search(r'[A-Za-z]{3,}',s['text']) for s in spans):continue
             kinds=[math_like(s,prose_size) for s in spans]
             # Script-size math-roman digits split from their partner ("1" over
             # "2" in another PDF line) must stay a formula, not prose digits.
@@ -1095,7 +1106,11 @@ def math_islands(blocks):
                     if id(x) not in absorbed:spans.append(x)
                     continue
                 if x.get('merged'):continue
-                if not x['strong']:spans.extend(x['members']);continue
+                if not x['strong']:
+                    # Fragments merged from several PDF lines of one row come back left to right.
+                    ms=x['members'];cy=[(m['bbox'][1]+m['bbox'][3])/2 for m in ms]
+                    if len(ms)>1 and max(cy)-min(cy)<=max(m['size'] for m in ms)*.8:ms=sorted(ms,key=lambda m:m['bbox'][0])
+                    spans.extend(ms);continue
                 first,last=x['members'][0]['text'],x['members'][-1]['text']
                 prose_items=[y for y in items if 'members' not in y and y['text'].strip()]
                 before=[y for y in prose_items if items.index(y)<items.index(x)]
