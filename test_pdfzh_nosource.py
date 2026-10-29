@@ -651,6 +651,11 @@ class NativeTests(unittest.TestCase):
         blocks=[{'type':0,'bbox':(100,100,300,130),'lines':[prose,formula,log,tail]}]
         app.math_islands(blocks)
         self.assertNotIn('log',''.join(s['text'] for s in blocks[0]['lines'][2]['spans']))
+        # `out` p4: "Append_K(B_{t-1})" is an operator-like identifier: one long word is not prose.
+        ident=line(sp('Append','CMR10',10,100,140,120,130),sp('K','CMMI7',7,140,145,123,130),sp('(','CMR10',10,145,150,120,130))
+        blocks=[{'type':0,'bbox':(100,100,300,130),'lines':[prose,ident,tail]}]
+        app.math_islands(blocks)
+        self.assertNotIn('Append',''.join(s['text'] for s in blocks[0]['lines'][1]['spans']))
         words=[line(sp(w,'LMRoman10-Regular',10,100+40*i,130+40*i,120,130)) for i,w in enumerate(['model','for','a','space'])]
         blocks=[{'type':0,'bbox':(100,100,300,130),'lines':[prose]+words}]
         app.math_islands(blocks)

@@ -913,8 +913,8 @@ def math_islands(blocks):
                 cy=(line['bbox'][1]+line['bbox'][3])/2
                 words=[w for l in b['lines'] if abs((l['bbox'][1]+l['bbox'][3])/2-cy)<=4
                        for s in l['spans'] if WEAK_MATH_FONT.match(s['font']) and s['size']>=body_size*.85
-                       for w in re.findall(r'[A-Za-z]{3,}',s['text']) if w.lower() not in MATH_OPERATORS and not w.isupper()]
-                if len(words)>=2 or any(len(w)>=5 for w in words):continue
+                       for w in re.findall(r'[A-Za-z]{3,}',s['text']) if w.lower() not in MATH_OPERATORS and not w.isupper() and not re.search(r'[a-z][A-Z]',w)]
+                if len(words)>=2:continue
             kinds=[math_like(s,prose_size) for s in spans]
             # Script-size math-roman digits split from their partner ("1" over
             # "2" in another PDF line) must stay a formula, not prose digits.
