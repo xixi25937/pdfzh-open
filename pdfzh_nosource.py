@@ -1283,6 +1283,45 @@ def orientation_normalized(pdf,out):
     return target
 
 
+def glyph_code_names(doc):
+    """Simple fonts without /ToUnicode whose /Differences name every glyph
+    "G<decimal code>" (PageMaker + Distiller: G72 = 'H'). MuPDF extracts their
+    text as control characters; return {font xref: {code: unicode}}."""
+    fonts={}
+    for x in range(1,doc.xref_length()):
+        if doc.xref_get_key(x,'Type')!=('name','/Font') or doc.xref_get_key(x,'Subtype')[1] not in ('/Type1','/TrueType'):continue
+        if doc.xref_get_key(x,'ToUnicode')[0]!='null' or re.search(r'Symbol|Wingding|Dingbat',doc.xref_get_key(x,'BaseFont')[1],re.I):continue
+        enc=doc.xref_get_key(x,'Encoding')
+        if enc[0]=='xref':enc=('dict',doc.xref_object(int(enc[1].split()[0])))
+        m=re.search(r'/Differences\s*\[([^\]]*)\]',enc[1]) if enc[0]=='dict' else None
+        if not m:continue
+        tokens=re.findall(r'\d+|/[^\s/\[\]]+',m[1]);code=0;names={}
+        for t in tokens:
+            if t[0]!='/':code=int(t);continue
+            names[code]=t[1:];code+=1
+        if not names or not all(re.fullmatch(r'G\d{2,3}',n) and 32<=int(n[1:])<=255 for n in names.values()):continue
+        fonts[x]={c:bytes([int(n[1:])]).decode('cp1252',errors='replace') for c,n in names.items()}
+    return fonts
+
+
+def glyph_code_mapped(pdf,out):
+    """A copy whose G<code> fonts (see glyph_code_names) carry a /ToUnicode."""
+    with pymupdf.open(pdf) as d:
+        fonts=glyph_code_names(d)
+        if not fonts:return pdf
+        target=out/(pdf.stem+'.mapped.pdf')
+        for x,table in fonts.items():
+            rows=''.join(f'<{c:02X}> <{ord(u):04X}>\n' for c,u in sorted(table.items()) if u!='\ufffd')
+            cmap=('/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /pdfzh def /CMapType 2 def\n'
+                  '1 begincodespacerange <00> <FF> endcodespacerange\n'
+                  f'{rows.count(chr(10))} beginbfchar\n{rows}endbfchar endcmap CMapName currentdict /CMap defineresource pop end end')
+            s=d.get_new_xref();d.update_object(s,'<<>>');d.update_stream(s,cmap.encode())
+            d.xref_set_key(x,'ToUnicode',f'{s} 0 R')
+        d.save(target,garbage=3,deflate=True)
+    print(f'[结构] {len(fonts)} 个字体缺少文字映射（字形名 G+编码），已按编码补齐',flush=True)
+    return target
+
+
 def check_typesetting_environment():
     """Fail before translation spend if this machine cannot typeset locally."""
     missing=[name for name in ('xelatex','latexmk','fc-match') if not shutil.which(name)]
@@ -1660,7 +1699,7 @@ def compile_overlay(pdf,out,plan,cache,*,allow_fallback=True,rounds=0):
     latex.write_json(out/'qa.json',report)
     if not report['automated_checks_passed']:
         print('[质检] 仍有检查项未通过，照常输出成品并标记需复核；详情见 qa.json',flush=True)
-    stem=pdf.stem.removesuffix('.unrotated')
+    stem=re.sub(r'(\.unrotated|\.mapped)+$','',pdf.stem)
     zh=publish_copy(rendered,out/(stem+'-中文-无源码试验.pdf'))
     dual=out/(stem+'-中英-无源码试验.pdf')
     with pymupdf.open(pdf) as src,pymupdf.open(zh) as cn,pymupdf.open() as output:
@@ -1752,6 +1791,7 @@ def main(argv=None):
     print('[目录] '+str(out),flush=True)
     if not a.analyze_only: check_typesetting_environment()
     pdf=orientation_normalized(pdf,out)
+    pdf=glyph_code_mapped(pdf,out)
     plan=prepare(pdf,out)
     if a.analyze_only:
         print('[完成] 仅分析结构，无翻译调用：'+str(out/'structure.json'),flush=True);return
@@ -1770,7 +1810,7 @@ def main(argv=None):
     except Exception as e:
         # Last resort: still hand the user a document (the original), with the
         # cause recorded; the translation cache is kept for a later rerun.
-        stem=pdf.stem.removesuffix('.unrotated')
+        stem=re.sub(r'(\.unrotated|\.mapped)+$','',pdf.stem)
         copy=publish_copy(pdf,out/(stem+'-排版失败-原文.pdf'))
         latex.write_json(out/'qa.json',{'status':'layout_failed','automated_checks_passed':False,
             'error':str(e)[:500],'source_sha256':plan['source_sha256'],'output_files':{'chinese':str(copy),'bilingual':str(copy)}})

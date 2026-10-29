@@ -110,6 +110,27 @@ class NativeTests(unittest.TestCase):
         seg=app.segment(text)
         self.assertIn(chr(app.ISLAND_BASE),seg['protected'])
 
+    def test_glyph_code_named_font_gets_tounicode(self):
+        # IRLZ44N (PageMaker + Distiller 6): no /ToUnicode, /Differences
+        # [1 /G72 /G105] = "Hi"; MuPDF extracted control characters and every
+        # page stayed English as unmapped_glyph.
+        with tempfile.TemporaryDirectory() as folder:
+            src=Path(folder)/'g.pdf'
+            with pymupdf.open() as d:
+                page=d.new_page(width=200,height=100)
+                f=d.get_new_xref();d.update_object(f,'<</Type/Font/Subtype/Type1/BaseFont/Helvetica/FirstChar 1/LastChar 2/Widths[722 222]'
+                                                   '/Encoding<</Type/Encoding/Differences[1/G72/G105]>>>>')
+                d.xref_set_key(page.xref,'Resources','<</Font<</F1 %d 0 R>>>>'%f)
+                c=d.get_new_xref();d.update_object(c,'<<>>');d.update_stream(c,b'BT /F1 12 Tf 20 50 Td <0102> Tj ET')
+                d.xref_set_key(page.xref,'Contents','%d 0 R'%c)
+                d.save(src)
+            with pymupdf.open(src) as d:self.assertNotIn('Hi',d[0].get_text())
+            mapped=app.glyph_code_mapped(src,Path(folder))
+            self.assertNotEqual(mapped,src)
+            with pymupdf.open(mapped) as d:self.assertIn('Hi',d[0].get_text())
+            # A font with ordinary glyph names is left alone.
+            self.assertEqual(app.glyph_code_mapped(mapped,Path(folder)),mapped)
+
     def test_symbol_bullet_in_own_line_joins_item_row(self):
         # AP2112 p1: Symbol \uf0b7 bullet is its own PDF line, 12pt left of the
         # item text; it stayed an orphan formula and the whole list was kept
