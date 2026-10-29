@@ -660,6 +660,32 @@ class NativeTests(unittest.TestCase):
         self.assertEqual(text[1],'other thread does.')
         self.assertNotIn('other',text[0])
 
+    def test_computer_modern_script_tails_of_two_rows_do_not_swap(self):
+        # 37297 p7: "i_start^k' - 1. The" / "... - 1 only." are the tails of two
+        # prose rows, set as their own PDF lines under a superscript. Both
+        # were merged into one island and came back on the lower row, in merge
+        # order: "... only.start -1. The Thus, ...".
+        def sp(t,font,size,x0,x1,base):
+            return {'text':t,'font':font,'size':size,'flags':0,'color':0,'bbox':(x0,base-size*.8,x1,base+size*.2),'origin':(x0,base)}
+        def line(box,*spans):return {'bbox':box,'dir':(1,0),'spans':list(spans)}
+        row1=line((57.5,478.7,237.9,491.4),sp('In all cases, the trace reaches a row','CMR10',10,57.5,203,489.2),
+            sp(' i < i','CMMI10',10,203,220,489.2),sp('k','CMMI7',7,220,230,485.6),sp('′','CMSY5',5,230,237.9,482.6))
+        tail1=line((231.3,481.3,288.7,493.7),sp('start','CMMI7',7,231.3,250,491.7),sp(' ','CMSY10',10,250,253,491.7),
+            sp('−','CMSY10',10,253,261,489.2),sp('1.','CMR10',10,261,272,489.2),sp(' ','CMR10',10,272,275,489.2),sp('The','CMR10',10,275,288.7,489.2))
+        row2=line((57.5,490.6,235.1,503.4),sp('exception strictly allows contact with','CMR10',10,57.5,200,501.2),
+            sp(' i','CMMI10',10,200,212,501.2),sp('k','CMMI7',7,212,222,497.6),sp('′','CMSY5',5,222,235.1,494.6))
+        tail2=line((228.5,493.3,288.7,505.7),sp('start','CMMI7',7,228.5,248,503.7),sp(' ','CMSY10',10,248,251,503.7),
+            sp('−','CMSY10',10,251,259,501.2),sp('1','CMR10',10,259,267,501.2),sp(' ','CMR10',10,267,270,501.2),sp('only.','CMR10',10,270,288.7,501.2))
+        row3=line((57.5,504.9,236.4,516.2),sp('Thus, the condition fails, and','CMR10',10,57.5,200,513.1),
+            sp(' T','CMMI10',10,200,212,513.1),sp('k','CMMI7',7,212,222,514.6),sp('′','CMSY5',5,222,236.4,512.6))
+        blocks=[{'type':0,'bbox':(57.5,478.7,237.9,491.4),'lines':[row1]},
+                {'type':0,'bbox':(57.5,481.3,288.7,503.4),'lines':[tail1,row2]},
+                {'type':0,'bbox':(57.5,493.3,288.7,516.2),'lines':[tail2,row3]}]
+        app.math_islands(blocks)
+        texts=[''.join(s['text'] for s in l['spans']) for b in blocks for l in b['lines']]
+        self.assertTrue(any('The' in t for t in texts))
+        self.assertFalse(any('The' in t and 'only.' in t for t in texts))
+
     def test_computer_modern_formula_row_with_operator_name_stays_island(self):
         # DPO p6: "r(x,y) = beta log pi/pi_ref" has a body-size CMR10 "log"; that made
         # the whole row prose, so "log" was sent to the model and came back "日志".
