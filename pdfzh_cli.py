@@ -137,8 +137,10 @@ def main(argv=None):
                 # Bad key / no network: a document with the original text is still delivered.
                 print('[未完成] '+report['translation_failure']+' 已输出 PDF（未译部分保留原文）：'+report['output_files']['bilingual']+'。诊断目录：'+str(out))
                 if not args.no_open:reveal(out)
+            elif args.offline:
+                print('[未完成] 仍有片段没有译文缓存，--offline 不能补齐。去掉 --offline 重新运行即可，只翻译缺失片段，已有缓存不重译。诊断目录：'+str(out))
             else:
-                print('[未完成] 仍有片段缺少合格译文，--offline 不能补齐。修正问题后重新运行，只补缺失片段；已有合格缓存不重译。诊断目录：'+str(out))
+                print('[未完成] 仍有片段缺少合格译文。修正问题后重新运行，只补缺失片段；已有合格缓存不重译。诊断目录：'+str(out))
         else:
             print('[未完成] 译文缓存已保留。若是编译或质检失败，重复翻译不能修复；可用 --offline 零翻译费用重排。诊断目录：'+str(out))
         return rc
@@ -151,7 +153,9 @@ def main(argv=None):
     from pdfzh_nosource import publish_copy
     checked=report.get('automated_checks_passed')
     suffix='-缓存预览.pdf' if args.preview_cache else '-中英对照.pdf' if checked else '-中英对照-需复核.pdf'
-    if not checked:print('[提示] 部分自动检查未通过，仍输出结果；问题位置见 '+str(out/'qa.json'))
+    if report.get('garbled_text',{}).get('warning'):
+        print('[警告] 这份 PDF 的字体编码异常，大部分文字无法提取，没有翻译、保留英文原样。需要 OCR 或换一份 PDF。')
+    elif not checked:print('[提示] 部分自动检查未通过，仍输出结果；问题位置见 '+str(out/'qa.json'))
     friendly=publish_copy(output,out.parent/(pdf.stem+suffix))
     settings=user.load_settings();settings['last_result']=str(friendly);save_error=None
     try:user.save_settings(settings)

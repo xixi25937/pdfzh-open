@@ -186,6 +186,16 @@ class NativeTests(unittest.TestCase):
         plain=build(9)
         self.assertEqual(app.math_islands(plain),[])
 
+    def test_garbled_font_share_flags_untranslated_document(self):
+        # IRLZ44N before 72c3183: 334 unmapped_glyph regions, 20 slots, body
+        # coverage still 100%. Translated MCP9700 package pages stay below it.
+        um=lambda n:{'kind':'unmapped_glyph','text':'x'*n}
+        bad=app.garbled_text([um(4697),{'kind':'figure_text','text':'y'*900}],[{'source':'z'*2273}])
+        self.assertTrue(bad['warning']);self.assertAlmostEqual(bad['share'],.674,places=3)
+        ok=app.garbled_text([um(1892)],[{'source':'z'*26164}])
+        self.assertFalse(ok['warning'])
+        self.assertFalse(app.garbled_text([],[])['warning'])
+
     def test_cmex_control_code_delimiters_join_island_on_prose_row_with_islands(self):
         # 36539 p4: "segment, u_f = clip ( ... , 0, 1 )" - the CMEX10 big
         # parentheses are '\x00'/'\x01' in their own PDF lines next to a row

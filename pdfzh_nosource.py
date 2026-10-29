@@ -414,6 +414,20 @@ def untranslated_candidates(document,plan):
     return found
 
 
+GARBLED_SHARE=.25
+
+
+def garbled_text(retained,slots):
+    """Share of the page text (chars) kept back as unmapped_glyph. Garbled text
+    never counts as body, so body coverage stays 100% even when nothing was
+    translated (IRLZ44N before 72c3183: 67%). Translated documents peak at 7%
+    (MCP9700 package drawings), so 25% separates the two."""
+    bad=sum(len(r.get('text','').strip()) for r in retained if r['kind']=='unmapped_glyph')
+    total=bad+sum(len(s['source'].strip()) for s in slots)
+    share=round(bad/total,4) if total else 0.0
+    return {'unmapped_chars':bad,'share':share,'threshold':GARBLED_SHARE,'warning':share>GARBLED_SHARE}
+
+
 def body_coverage(source,plan,valid,layout):
     """Share of body-size prose (chars) inside translated slots.
 
@@ -1696,6 +1710,10 @@ def compile_overlay(pdf,out,plan,cache,*,allow_fallback=True,rounds=0):
     report['fallback_pages']=sorted({i+1 for i,p in enumerate(plan['pages']) for r in p['retained']
                                      if r['kind'] in ('page_check_fallback','position_fallback')})
     report['retained_by_kind']=dict(Counter(r['kind'] for r in report['retained_regions']))
+    report['garbled_text']=garbled_text(report['retained_regions'],report['slots'])
+    if report['garbled_text']['warning']:
+        # rc stays 0 (a PDF is delivered), but never as a finished translation.
+        report.update(translation_completeness='garbled_font',status='garbled_text_published',automated_checks_passed=False)
     latex.write_json(out/'qa.json',report)
     if not report['automated_checks_passed']:
         print('[质检] 仍有检查项未通过，照常输出成品并标记需复核；详情见 qa.json',flush=True)
@@ -1718,7 +1736,11 @@ def compile_overlay(pdf,out,plan,cache,*,allow_fallback=True,rounds=0):
     print(f'[覆盖率检查] {len(report["untranslated_text_candidates"])} 行疑似未翻译英文（专名可能误报），详见 qa.json；排版通过不等于全文翻译完成。',flush=True)
     bc=report['body_coverage']
     print(f'[正文覆盖率] {bc["coverage"]:.1%}（正文字号 {bc["body_font"]}pt，{len(bc["untranslated_body"])} 行未译）',flush=True)
-    print('[说明] 自动检查通过，但报告中的保留项仍需人工复核；不会宣称全文无误。',flush=True)
+    g=report['garbled_text']
+    if g['warning']:
+        print(f'[警告] {g["share"]:.0%} 的文字字体编码异常，无法提取，这些文字没有翻译、保留英文原样；'
+              '正文覆盖率不统计这部分，不代表全文已译。需要 OCR 或换一份 PDF。',flush=True)
+    else:print('[说明] 自动检查通过，但报告中的保留项仍需人工复核；不会宣称全文无误。',flush=True)
     return report
 
 

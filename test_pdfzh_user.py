@@ -72,6 +72,7 @@ class UserTests(unittest.TestCase):
             with patch.object(cli.subprocess,'run',return_value=subprocess.CompletedProcess([],3)),redirect_stdout(output):
                 self.assertEqual(cli.main([str(pdf),'--offline','--no-open']),3)
             self.assertIn('--offline 不能补齐',output.getvalue())
+            self.assertIn('去掉 --offline 重新运行',output.getvalue())
             self.assertNotIn('零翻译费用重排',output.getvalue())
 
     def test_truncated_download_stops_before_engine(self):
