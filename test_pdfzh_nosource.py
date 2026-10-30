@@ -14,6 +14,12 @@ import pymupdf
 import pdfzh_nosource as app
 import pdfzh_latex as latex
 
+TESTS_DIR=Path(__file__).resolve().parent
+SKIP_FIXTURE='需要第三方夹具 test-island-*.pdf，公开仓库未包含；可用 TeX Live 自行生成同类样例'
+CMSY_PDF=TESTS_DIR/'test-island-cmsy.pdf'
+SUBSCRIPT_PDF=TESTS_DIR/'test-island-subscript.pdf'
+LEFTOVER_PDF=TESTS_DIR/'test-island-leftover.pdf'
+
 
 class NativeTests(unittest.TestCase):
     def test_figure_callouts_merge_wrapped_lines_and_stacked_ticks(self):
@@ -76,12 +82,12 @@ class NativeTests(unittest.TestCase):
         out=app.island_escape(s)('令牌'+chr(app.ISLAND_BASE)+'，')
         self.assertEqual(out.count(r'\hskip'),1)
 
+    @unittest.skipUnless(CMSY_PDF.exists(),SKIP_FIXTURE)
     def test_island_clipping_keeps_cmsy_symbols(self):
         # Adam p13: ‖g_t‖₂≤G. CMSY span boxes are tight in 'dict' (what
         # math_islands records as members) but font-tall in 'rawdict' (what
         # write_islands compares), so span-box equality dropped ‖ ≤ ∞.
-        src=app.HERE/'test-island-cmsy.pdf'
-        with pymupdf.open(src) as doc:
+        with pymupdf.open(CMSY_PDF) as doc:
             slots,_=app.blocks_for_page(doc[0],[])
             plan={'pages':[{'slots':slots}]}
             with tempfile.TemporaryDirectory() as folder:
@@ -93,12 +99,13 @@ class NativeTests(unittest.TestCase):
             self.assertIn(symbol,text)
         self.assertNotIn('Lemma',text)  # neighbouring prose stays erased
 
+    @unittest.skipUnless(SUBSCRIPT_PDF.exists(),SKIP_FIXTURE)
     def test_island_clipping_removes_subscript_text_under_tall_delimiter(self):
         # 36082 p3: the subscript "i=1" of a sum sits under the font-tall "}"
         # of the island next to it. One erase point fell into the gap of the
         # italic i / beside the stem of the 1, so both stayed in the island
         # and were printed a second time ("1" counted twice, page fell back).
-        with pymupdf.open(app.HERE/'test-island-subscript.pdf') as doc:
+        with pymupdf.open(SUBSCRIPT_PDF) as doc:
             slots,_=app.blocks_for_page(doc[0],[])
             plan={'pages':[{'slots':slots}]}
             self.assertTrue(any(s.get('islands') for s in slots))
@@ -589,6 +596,7 @@ class NativeTests(unittest.TestCase):
             slots,_=app.blocks_for_page(p,[])
         self.assertEqual([s['source'] for s in slots],['The closed-loop eigenvalues are values listed here are valid for the run.'])
 
+    @unittest.skipUnless(LEFTOVER_PDF.exists(),SKIP_FIXTURE)
     def test_leftover_island_glyph_is_erased_not_a_collision(self):
         # 37330 p7: the CMEX summation sign of an island survives the line
         # strip (its ink sits low in a tall font box). The word pass skipped
@@ -598,7 +606,7 @@ class NativeTests(unittest.TestCase):
         import hashlib, shutil, tempfile
         with tempfile.TemporaryDirectory(prefix='pdfzh-leftover-') as folder:
             root=Path(folder);src=root/'t.pdf';out=root/'out';out.mkdir()
-            shutil.copy(app.HERE/'test-island-leftover.pdf',src)
+            shutil.copy(LEFTOVER_PDF,src)
             latex.write_json(out/'layout.json',{'sha256':hashlib.sha256(src.read_bytes()).hexdigest(),'pages':[{'regions':[]}]})
             plan=app.prepare(src,out)
             cache={latex.digest(s['segment']['text']):'这是一段用于测试的中文译文。'*12+s['segment']['text']

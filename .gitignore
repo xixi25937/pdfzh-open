@@ -40,3 +40,5 @@ layout.json
 *_preview/
 *.pyc
 __pycache__/
+# 第三方片段，不入库
+test-island-*.pdf
