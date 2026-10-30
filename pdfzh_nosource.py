@@ -1032,11 +1032,11 @@ def math_islands(blocks):
                 if t is a or t['line'] is a['line'] or not near(a,t):continue
                 # Attach orphans toward prose-line islands, never the reverse.
                 if orphan(t) and not orphan(a):continue
-                # Two lines that each carry a math-roman word (CMR10 "start -1. The" /
-                # "start -1 only.") are prose tails of two rows, not one formula;
+                # Two lines on different rows that each carry a math-roman word (CMR10
+                # "start -1. The" / "start -1 only.") are prose tails, not one formula;
                 # merged, they come back as spans of one line, in merge order,
                 # and the rows swap (37297 p7).
-                if orphan(a) and orphan(t) and all(any(WEAK_MATH_FONT.match(m['font']) and re.search(r'[A-Za-z]{3,}',m['text']) for m in x['members']) for x in (a,t)):continue
+                if orphan(a) and orphan(t) and abs(a['baseline']-t['baseline'])>=.8*min(a['size'],t['size']) and all(any(WEAK_MATH_FONT.match(m['font']) and re.search(r'[A-Za-z]{3,}',m['text']) for m in x['members']) for x in (a,t)):continue
                 # A sub/superscript centres within its prose row; an inline
                 # fraction of the NEXT row only touches it and must stay there.
                 # The row is measured by its text glyphs: a tall hat or
