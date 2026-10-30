@@ -565,6 +565,30 @@ class NativeTests(unittest.TestCase):
                     self.assertIn('efficiency',text)
                     self.assertIn('算法',text,[r.get('kind') for r in report['retained_regions']])
 
+    def test_stretched_justified_row_is_folded_into_one_line(self):
+        # 37199 p7: a justified row stretched next to a display formula came
+        # out of MuPDF as one line per word; "are {...}" then owned a box that
+        # covered "The closed-loop eigenvalues", which stayed English under
+        # the Chinese. Equal word gaps (glue) mark such a row.
+        def ln(t,x0,x1,y=624.1):return {'bbox':(x0,y,x1,y+9.9),'dir':(1,0),'spans':[{'text':t,'bbox':(x0,y,x1,y+9.9),'font':'NimbusRomNo9L-Regu','size':10}]}
+        last=ln('{1.0, 2.0}.',312,564.1,635.7)
+        row=[ln('The',321.9,337.4),ln('closed-loop',377.6,424.1),ln('eigenvalues',464.3,510.7),ln('are',550.9,563)]
+        out=app.fold_stretched_rows(row+[last])
+        self.assertEqual(len(out),2)
+        self.assertEqual(''.join(s['text'] for s in out[0]['spans']),'The closed-loop eigenvalues are')
+        self.assertAlmostEqual(out[0]['bbox'][2]-out[0]['bbox'][0],563-321.9,places=2)
+        # Table headers and figure labels: unequal gaps, or not at the right edge.
+        columns=[ln('Lift',20,40),ln('Can',60,75),ln('Square',150,190),ln('Transport',500,564)]
+        self.assertEqual(len(app.fold_stretched_rows(columns+[last])),5)
+        self.assertEqual(len(app.fold_stretched_rows(row[:3]+[last])),4)
+        with pymupdf.open() as d:
+            p=d.new_page(width=400,height=200);x=72
+            for w in ('The','closed-loop','eigenvalues','are'):
+                p.insert_text((x,60),w,fontsize=10,fontname='helv');x+=pymupdf.get_text_length(w,'helv',10)+40
+            p.insert_text((72,72),'values listed here are valid for the run.',fontsize=10,fontname='helv')
+            slots,_=app.blocks_for_page(p,[])
+        self.assertEqual([s['source'] for s in slots],['The closed-loop eigenvalues are values listed here are valid for the run.'])
+
     def test_leftover_island_glyph_is_erased_not_a_collision(self):
         # 37330 p7: the CMEX summation sign of an island survives the line
         # strip (its ink sits low in a tall font box). The word pass skipped

@@ -1225,6 +1225,36 @@ def stack_blocks(blocks):
     return merged
 
 
+def fold_stretched_rows(lines):
+    """A justified row stretched around a display formula comes out of MuPDF
+    as one line per word ("The" "closed-loop" "eigenvalues" "are", 37199 p7);
+    the next paragraph line's box then covers the first words and they were
+    kept as overlapping text under the translation. Fold such a row back into
+    one line: three or more plain words on one baseline, equally far apart
+    (justification glue), ending at the right edge of the block, with another
+    line after them."""
+    right=max((l['bbox'][2] for l in lines),default=0);out=[];i=0
+    while i<len(lines):
+        run=[lines[i]];j=i+1
+        while (j<len(lines) and tuple(lines[j].get('dir',(1,0)))==(1,0) and abs(lines[j]['bbox'][1]-run[-1]['bbox'][1])<1
+               and abs(lines[j]['bbox'][3]-run[-1]['bbox'][3])<1 and lines[j]['bbox'][0]>=run[-1]['bbox'][2]):
+            run.append(lines[j]);j+=1
+        words=[''.join(s['text'] for s in l['spans']).strip() for l in run]
+        gaps=[y['bbox'][0]-x['bbox'][2] for x,y in zip(run,run[1:])]
+        if (len(run)>=3 and j<len(lines) and run[-1]['bbox'][2]>=right-2 and tuple(run[0].get('dir',(1,0)))==(1,0)
+                and max(gaps)-min(gaps)<.6
+                and all(re.fullmatch(r"[A-Za-z][A-Za-z'-]*[,.;:]?",w) for w in words)):
+            spans=list(run[0]['spans'])
+            for l in run[1:]:
+                spans+=[{**l['spans'][0],'text':' ','bbox':(spans[-1]['bbox'][2],l['bbox'][1],spans[-1]['bbox'][2],l['bbox'][3])}]+list(l['spans'])
+            box=pymupdf.Rect(run[0]['bbox'])
+            for l in run[1:]:box|=pymupdf.Rect(l['bbox'])
+            out.append({**run[0],'spans':spans,'bbox':tuple(box)})
+        else:out.extend(run)
+        i=j
+    return out
+
+
 def blocks_for_page(page,regions):
     tables=[];protected=[];slots=[];retained=[]
     page_blocks=page.get_text('dict')['blocks']
@@ -1237,6 +1267,7 @@ def blocks_for_page(page,regions):
     # same row; rejoin it (word-space gap only, so columns stay apart).
     joined=[]
     for b in page_blocks:
+        if b['type']==0 and b.get('lines'):b={**b,'lines':fold_stretched_rows(b['lines'])}
         if b['type']!=0 or not b['lines']:
             if b['type']!=0:joined.append(b)
             continue
