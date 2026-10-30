@@ -102,4 +102,4 @@ original 模式的流程：用 PyMuPDF 抽取文字和版面，BabelDOC 的版�
 
 ## 许可证
 
-AGPL-3.0-only，见 [LICENSE](LICENSE)。依赖的 BabelDOC 和 PyMuPDF / MuPDF 同为 AGPL，其余依赖的许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。字体（Microsoft YaHei 等）、DocLayout 模型权重和完整的测试论文都不随仓库发布；`test-island-*.pdf` 是从论文页面裁出的单元测试夹具，来源见交接说明第 6 节。贡献方式见 [release/CONTRIBUTING.md](release/CONTRIBUTING.md)：提交前跑单元测试，不要上传密钥、缓存或没有授权的 PDF。
+AGPL-3.0-only，见 [LICENSE](LICENSE)。依赖的 BabelDOC 和 PyMuPDF / MuPDF 同为 AGPL，其余依赖的许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。字体（Microsoft YaHei 等）、DocLayout 模型权重和完整的测试论文都不随仓库发布；从论文页面裁出的单元测试夹具 `test-island-*.pdf` 也不随仓库发布，对应的 3 个测试在缺少夹具时自动跳过。贡献方式见 [release/CONTRIBUTING.md](release/CONTRIBUTING.md)：提交前跑单元测试，不要上传密钥、缓存或没有授权的 PDF。
