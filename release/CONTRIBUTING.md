@@ -1,6 +1,6 @@
 # Contributing
 
-感谢帮助改进！目前主要支持 Windows，默认采用本地 OCR 与中文重排；旧原位模式另需 TeX Live。
+感谢帮助改进！目前主要支持 Windows，默认使用原位模式（需要 TeX Live）；没装 TeX Live 时自动退回本地 OCR 与中文重排（reflow）。
 
 提交问题时请提供：Windows/Python/TeX Live 版本、命令、报错阶段、已脱敏的小样本或局部截图。不要上传 API Key、settings.json、text-cache.json 或未经授权的 PDF。自动检查通过不代表语义翻译正确，请明确区分翻译、文字提取、布局和公式问题。
 
