@@ -263,6 +263,9 @@ class NativeTests(unittest.TestCase):
             p=d.new_page(width=300,height=600)
             p.insert_text((50,50),'Abstract',fontsize=10)
             for i,t in enumerate(rows):p.insert_text((50,50+17*(i+1)),t,fontsize=10)
+            # A heading whose next row ends within a few points of it is no text edge.
+            p.insert_text((50,440),'Convexity of the allocation objective',fontsize=10)
+            p.insert_text((50,457),'We consider the continuous allocation',fontsize=10)
             # Short stacked labels (legend entries) are not a paragraph.
             for i,t in enumerate(['Ours alpha','Base beta','Rand gamma']):p.insert_text((50,500+17*i),t,fontsize=10)
             slots,_=app.blocks_for_page(p,[])
@@ -270,8 +273,18 @@ class NativeTests(unittest.TestCase):
         self.assertGreater(len(rows),8)
         self.assertEqual(sources[0],'Abstract')
         self.assertEqual(sources[1],' '.join(words))
-        self.assertEqual(sources[2:],['Ours alpha','Base beta','Rand gamma'])
+        self.assertEqual(sources[2:],['Convexity of the allocation objective','We consider the continuous allocation','Ours alpha','Base beta','Rand gamma'])
 
+    def test_full_width_bold_heading_does_not_join_the_text_below(self):
+        # out-miner p18: "C.1. Per-Query Gradient and the Two-Signal Split" runs to
+        # within 2 pt of the column edge, so it passed for a full row.
+        def block(font,flags,base):
+            sp={'text':'word '*9,'font':font,'flags':flags,'size':10,'color':0,'bbox':(60,base-8,295,base+2),'origin':(60,base)}
+            ln={'bbox':sp['bbox'],'dir':(1,0),'spans':[sp]}
+            return {'type':0,'bbox':sp['bbox'],'lines':[ln]}
+        blocks=[block('Times-Bold',16,100)]+[block('Times',0,100+17*i) for i in range(1,10)]
+        merged=app.stack_blocks(blocks)
+        self.assertEqual([len(b['lines']) for b in merged],[1,9])
     def test_tiny_label_touching_axis_tick_is_retained(self):
         with pymupdf.open() as d:
             p=d.new_page(width=300,height=300)

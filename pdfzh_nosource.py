@@ -1172,7 +1172,7 @@ def stack_blocks(blocks):
             # the row above decides if that row ended by wrapping.
             first=next(s for s in r['spans'] if s['text'].strip());text=first['text'].strip()
             word=(first['bbox'][2]-first['bbox'][0])*len(text.split()[0])/max(len(first['text']),1)
-            result.append((r['bbox'][0],r['bbox'][2],d['origin'][1],d['size'],word))
+            result.append((r['bbox'][0],r['bbox'][2],d['origin'][1],d['size'],word,styles.style(d)['bold']))
         return result
     infos=[rows(b) for b in blocks]
     # Only a page that MuPDF cut into mostly one-line blocks: elsewhere the
@@ -1187,7 +1187,7 @@ def stack_blocks(blocks):
             stacks.append([i]);continue
         if cur:
             prev=infos[cur[-1]][-1];fs=prev[3];pitch=info[0][2]-prev[2]
-            joined=(abs(info[0][3]-fs)<=.15*fs and 1.4*fs<=pitch<=2.3*fs and
+            joined=(abs(info[0][3]-fs)<=.15*fs and info[0][5]==prev[5] and 1.4*fs<=pitch<=2.3*fs and
                     abs(info[0][0]-left)<=1.5*fs and (ref is None or abs(pitch-ref)<=.2*fs))
             if joined:
                 ref=pitch if len(info)==1 else info[-1][2]-info[-2][2]
@@ -1199,9 +1199,14 @@ def stack_blocks(blocks):
     result=[]
     for st in stacks:
         right=max((r[1] for i in st if infos[i] for r in infos[i]),default=0)
+        # A heading or a short address block is the longest row of its own
+        # small stack: only a margin that two rows reach (justified text
+        # ends within a fraction of a point) is a text edge.
+        if sum(r[1]>=right-.3*r[3] for i in st if infos[i] for r in infos[i])<2:
+            result.extend([i] for i in st);continue
         piece=[st[0]]
         for a,b in zip(st,st[1:]):
-            x0,x1,_,fs,_=infos[a][-1]
+            x0,x1,_,fs,_,_=infos[a][-1]
             if x1+.25*fs+infos[b][0][4]>=right-fs and x1-x0>=15*fs:piece.append(b)
             else:result.append(piece);piece=[b]
         result.append(piece)
