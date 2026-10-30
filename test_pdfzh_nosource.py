@@ -444,6 +444,14 @@ class NativeTests(unittest.TestCase):
         # A protected source number still has to survive.
         with self.assertRaises(ValueError):app.translated_text(s,'把 1 变成 0 和 2，至多为 1（图）。')
 
+    def test_unity_may_become_one(self):
+        # 37441 p6: "saturates its normalized output near 0.8 rather than unity"
+        # came back as "接近 0.8 而非 1"; the 10-line paragraph stayed English.
+        s=app.segment('It saturates near 0.8 rather than unity [19].')
+        self.assertIn('而非 1',app.translated_text(s,'它在接近 @@P0@@ 而非 1 处饱和 [@@P1@@]。'))
+        with self.assertRaises(ValueError):app.translated_text(s,'它在接近 @@P0@@ 而非 1 或 1 处饱和 [@@P1@@]。')
+        with self.assertRaises(ValueError):app.translated_text(app.segment('It saturates near 0.8 [19].'),'它在接近 @@P0@@ 而非 1 处饱和 [@@P1@@]。')
+
     def test_fraction_with_three_prose_words_does_not_translate_numerator(self):
         with pymupdf.open() as d:
             p=d.new_page(width=500,height=300)
