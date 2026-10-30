@@ -565,6 +565,24 @@ class NativeTests(unittest.TestCase):
                     self.assertIn('efficiency',text)
                     self.assertIn('算法',text,[r.get('kind') for r in report['retained_regions']])
 
+    def test_leftover_island_glyph_is_erased_not_a_collision(self):
+        # 37330 p7: the CMEX summation sign of an island survives the line
+        # strip (its ink sits low in a tall font box). The word pass skipped
+        # words inside an island box, so the box counted it as a collision and
+        # the 5-line paragraph went back to English. Island glyphs are drawn
+        # from islands.pdf; the original may be erased like any other word.
+        import hashlib, shutil, tempfile
+        with tempfile.TemporaryDirectory(prefix='pdfzh-leftover-') as folder:
+            root=Path(folder);src=root/'t.pdf';out=root/'out';out.mkdir()
+            shutil.copy(app.HERE/'test-island-leftover.pdf',src)
+            latex.write_json(out/'layout.json',{'sha256':hashlib.sha256(src.read_bytes()).hexdigest(),'pages':[{'regions':[]}]})
+            plan=app.prepare(src,out)
+            cache={latex.digest(s['segment']['text']):'这是一段用于测试的中文译文。'*12+s['segment']['text']
+                   for s in plan['pages'][0]['slots']}
+            with patch.object(latex,'api_batch',side_effect=AssertionError('paid API forbidden')):
+                report=app.compile_overlay(src,out,plan,cache)
+        self.assertNotIn('retained_text_collision',report['retained_by_kind'])
+
     def test_locked_output_publishes_revision_without_changing_original(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);src=root/'new.pdf';dst=root/'old.pdf'

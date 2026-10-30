@@ -1796,8 +1796,7 @@ def compile_overlay(pdf,out,plan,cache,*,allow_fallback=True,rounds=0):
                 if not hits:continue
                 islands=[pymupdf.Rect(i['bbox']) for i in s.get('islands',[])]
                 zones=[pymupdf.Rect(r['bbox']) for r in keep if r.get('bbox')]
-                remaining=[w for w in hits if not any(i.contains(pymupdf.Rect(w[:4])) for i in islands)
-                           and not any((z & pymupdf.Rect(w[:4])).get_area()>.5*pymupdf.Rect(w[:4]).get_area() for z in zones)]
+                remaining=[w for w in hits if not any((z & pymupdf.Rect(w[:4])).get_area()>.5*pymupdf.Rect(w[:4]).get_area() for z in zones)]
                 for w in remaining:
                     page.add_redact_annot(erase_core(w[:4]),fill=None)
                 if remaining:
