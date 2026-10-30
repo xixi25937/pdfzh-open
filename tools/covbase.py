@@ -1,7 +1,7 @@
 """usage: baseline.py save|compare [file] : coverage + rc-like summary from every regress.log"""
 import sys, re, json, os, pathlib
-T = pathlib.Path(r'C:\Users\Lenovo\Desktop\具身智能\测试新论文')
-HERE = pathlib.Path(r'C:\Users\Lenovo\Desktop\具身智能\pdfzh')
+HERE = pathlib.Path(__file__).resolve().parent.parent
+T = HERE.parent / '测试新论文'
 dirs = [T / 'out-miner', T / 'out-ropt', T / 'out', HERE / '.test' / 'iter' / '22536'] + sorted((T / 'train').glob('*'))
 def read():
     res = {}

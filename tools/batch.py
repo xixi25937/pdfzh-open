@@ -2,7 +2,7 @@
 engine on 训练资料 files in parallel; prints rc, body coverage, retained kinds, cost."""
 import subprocess,sys,json,re
 from pathlib import Path
-HERE=Path(r'C:\Users\Lenovo\Desktop\具身智能\pdfzh')
+HERE=Path(__file__).resolve().parent.parent
 SRC=HERE.parent/'训练资料';ROOT=HERE.parent/'测试新论文'/'train'
 args=[a for a in sys.argv[1:] if not a.startswith('--')];extra=[a for a in sys.argv[1:] if a.startswith('--')]
 procs=[]

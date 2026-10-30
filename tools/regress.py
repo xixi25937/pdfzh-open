@@ -2,7 +2,7 @@
 and every finished 训练资料 output. usage: regress.py [--paid] (paid = fill cache misses)."""
 import subprocess,sys,json,re
 from pathlib import Path
-HERE=Path(r'C:\Users\Lenovo\Desktop\具身智能\pdfzh');PY=str(HERE/'.venv-next/Scripts/python.exe')
+HERE=Path(__file__).resolve().parent.parent;PY=str(HERE/'.venv-next/Scripts/python.exe')
 T=HERE.parent/'测试新论文'
 jobs=[(T/'2610.28941.pdf',T/'out-miner'),(T/'2610.28962.pdf',T/'out-ropt'),(T/'2610.28814.pdf',T/'out'),(HERE.parent/'2605.22536v2.pdf',HERE/'.test/iter/22536')]
 for out in sorted((T/'train').glob('*')):
