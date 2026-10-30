@@ -203,11 +203,15 @@ def write_islands(doc,plan,path):
                         for g,sp,c,(x0,y0,x1,y1) in near:
                             if g in kept or not c.strip():continue
                             # A tiny box inside the glyph's ink: a full glyph box
-                            # could also hit a member glyph.
+                            # could also hit a member glyph. MuPDF tests the glyph
+                            # outline, so one point can fall in the gap of an
+                            # italic "i" or beside the stem of a "1" (36082 p3:
+                            # the subscript "i=1" stayed in the \sum island and
+                            # was printed twice): try every point.
                             for fx,fy in ((.5,.5),(.25,.5),(.75,.5),(.5,.25),(.5,.75),(.1,.5),(.9,.5),(.1,.1),(.9,.9)):
                                 cx=x0+(x1-x0)*fx;cy=y0+(y1-y0)*fy
                                 if not any(a<=cx<=c and b<=cy<=d for a,b,c,d in keep):
-                                    page.add_redact_annot(pymupdf.Rect(cx-.05,cy-.05,cx+.05,cy+.05),fill=None);break
+                                    page.add_redact_annot(pymupdf.Rect(cx-.05,cy-.05,cx+.05,cy+.05),fill=None)
                         page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE,
                             graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,text=pymupdf.PDF_REDACT_TEXT_REMOVE)
                         target=out.new_page(width=clip.width,height=clip.height)

@@ -93,6 +93,23 @@ class NativeTests(unittest.TestCase):
             self.assertIn(symbol,text)
         self.assertNotIn('Lemma',text)  # neighbouring prose stays erased
 
+    def test_island_clipping_removes_subscript_text_under_tall_delimiter(self):
+        # 36082 p3: the subscript "i=1" of a sum sits under the font-tall "}"
+        # of the island next to it. One erase point fell into the gap of the
+        # italic i / beside the stem of the 1, so both stayed in the island
+        # and were printed a second time ("1" counted twice, page fell back).
+        with pymupdf.open(app.HERE/'test-island-subscript.pdf') as doc:
+            slots,_=app.blocks_for_page(doc[0],[])
+            plan={'pages':[{'slots':slots}]}
+            self.assertTrue(any(s.get('islands') for s in slots))
+            with tempfile.TemporaryDirectory() as folder:
+                out=Path(folder)/'islands.pdf'
+                app.write_islands(doc,plan,out)
+                with pymupdf.open(out) as islands:
+                    text=''.join(p.get_text() for p in islands)
+        self.assertIn('|',text)
+        self.assertNotIn('1',text)
+
     def test_inline_math_becomes_one_protected_island(self):
         def sp(t,font,size,x0,x1,y=(0,10)):
             return {'text':t,'font':font,'size':size,'flags':0,'color':0,'bbox':(x0,y[0],x1,y[1]),'origin':(x0,8)}
