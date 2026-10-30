@@ -292,10 +292,10 @@ Foo & 1.25 \\
         app.validate_translation(short,'安全说明。')
 
     def test_latin_person_names_must_survive_translation(self):
-        # 36192 p1: "Alice Wang & Bob You" came back as "王爱丽 & 尤波".
-        authors=native.segment('Alice Wang & Bob You NUS HPC-AI Lab alice@example.edu, bob@example.edu')
+        # 36192 p1: an author line came back with transliterated names ("Alice Wang & Bob You" -> "爱丽丝 & 鲍勃").
+        authors=native.segment('Alice Wang & Bob You XYZ HPC-AI Lab alice@example.edu, bob@example.edu')
         with self.assertRaisesRegex(ValueError,'人名'):
-            app.validate_translation(authors,'王爱丽 @@P0@@ 尤波 @@P1@@ @@P2@@ 实验室 @@P3@@，@@P4@@')
+            app.validate_translation(authors,'爱丽丝 @@P0@@ 鲍勃 @@P1@@ @@P2@@ 实验室 @@P3@@，@@P4@@')
         app.validate_translation(authors,'Alice Wang @@P0@@ Bob You @@P1@@ @@P2@@ 实验室 @@P3@@，@@P4@@')
         # Superscript-marked author lines (island sentinels after each name).
         marked=native.segment('Joseph Redmon\U000F0000, Santosh Divvala\U000F0001, Ross Girshick\U000F0002')
